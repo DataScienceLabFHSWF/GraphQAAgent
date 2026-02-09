@@ -1,0 +1,18 @@
+[
+  {
+    "question_id": "CQ-01",
+    "text": "Welche Rückbauverfahren werden bei einer bestimmten Kernanlage eingesetzt?",
+    "entity_class": "NuclearFacility",
+    "priority": "must",
+    "aspect": "relationship",
+    "sparql_template": ""
+  },
+  {
+    "question_id": "CQ-02",
+    "text": "Welche Komponenten hat eine bestimmte Kernanlage?",
+    "entity_class": "NuclearFacility",
+    "priority": "must",
+    "aspect": "relationship",
+    "sparql_template": ""
+  }
+]

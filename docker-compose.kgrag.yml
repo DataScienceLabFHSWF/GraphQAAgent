@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------
+  # KG-RAG Dedicated Ollama Service
+  # ---------------------------------------------------------------
+  kgrag-ollama:
+    image: ollama/ollama:latest
+    container_name: kgrag-ollama
+    ports:
+      - "18136:11434"  # Map host port 18136 to container port 11434
+    volumes:
+      - kgrag_ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # KG-RAG QA Agent API
+  # ---------------------------------------------------------------
+  kgrag-agent:
+    build: .
+    container_name: kgrag-agent
+    network_mode: host  # Use host networking to access external services
+    environment:
+      # Neo4j
+      KGRAG_NEO4J__URI: bolt://localhost:7687
+      KGRAG_NEO4J__USER: neo4j
+      KGRAG_NEO4J__PASSWORD: changeme
+      KGRAG_NEO4J__DATABASE: neo4j
+
+      # Qdrant
+      KGRAG_QDRANT__URL: http://localhost:6333
+      KGRAG_QDRANT__COLLECTION_NAME: kgbuilder
+
+      # Fuseki
+      KGRAG_FUSEKI__URL: http://localhost:3030
+      KGRAG_FUSEKI__DATASET: ontology
+
+      # KG-RAG Dedicated Ollama
+      KGRAG_OLLAMA__BASE_URL: http://localhost:18136
+      KGRAG_OLLAMA__GENERATION_MODEL: qwen3:8b
+      KGRAG_OLLAMA__EMBEDDING_MODEL: qwen3-embedding:latest
+      KGRAG_OLLAMA__TEMPERATURE: 0.3
+      KGRAG_OLLAMA__MAX_TOKENS: 4096
+
+      # Retrieval
+      KGRAG_RETRIEVAL__VECTOR_TOP_K: 10
+      KGRAG_RETRIEVAL__GRAPH_MAX_HOPS: 2
+      KGRAG_RETRIEVAL__GRAPH_MAX_NODES: 50
+
+      # Reasoning
+      KGRAG_RETRIEVAL__REASONING__ENABLE_CHAIN_OF_THOUGHT: true
+      KGRAG_RETRIEVAL__REASONING__ENABLE_REACT_REASONING: false
+      KGRAG_RETRIEVAL__REASONING__ENABLE_ITERATIVE_EXPLORATION: true
+      KGRAG_RETRIEVAL__REASONING__ENABLE_ANSWER_VERIFICATION: true
+      KGRAG_RETRIEVAL__REASONING__COT_MAX_STEPS: 5
+      KGRAG_RETRIEVAL__REASONING__REACT_MAX_ITERATIONS: 3
+      KGRAG_RETRIEVAL__REASONING__REACT_RELEVANCE_THRESHOLD: 0.3
+      KGRAG_RETRIEVAL__REASONING__VERIFICATION_CLAIM_THRESHOLD: 0.5
+
+      # Logging
+      KGRAG_LOG_LEVEL: INFO
+    command: uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8080
+    depends_on:
+      kgrag-ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  kgrag_ollama_data:

@@ -1,0 +1,30 @@
+# KG-RAG Agent Requirements
+# Generated from pyproject.toml
+
+# --- Core ---
+pydantic>=2.5,<3
+pydantic-settings>=2.1,<3
+structlog>=24.1
+httpx>=0.27
+
+# --- Storage Connectors (read-only) ---
+neo4j>=5.15,<6
+qdrant-client>=1.7,<2
+
+# --- Embeddings & Reranking ---
+numpy>=1.26,<2
+sentence-transformers>=3.0
+
+# --- LLM ---
+ollama>=0.4
+langchain-core>=0.2
+
+# --- Text Processing ---
+rapidfuzz>=3.5
+
+# --- API (optional) ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+
+# --- Experiment Tracking ---
+wandb>=0.16

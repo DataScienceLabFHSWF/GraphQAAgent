@@ -1,0 +1,72 @@
+services:
+  # ---------------------------------------------------------------
+  # External services (shared with KnowledgeGraphBuilder or standalone)
+  # ---------------------------------------------------------------
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/password
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  fuseki:
+    image: stain/jena-fuseki
+    environment:
+      ADMIN_PASSWORD: admin
+      FUSEKI_DATASET_1: ontology
+    ports:
+      - "3030:3030"
+    volumes:
+      - fuseki_data:/fuseki
+
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ---------------------------------------------------------------
+  # QA Agent API (optional — for REST access)
+  # ---------------------------------------------------------------
+  qa-agent:
+    build: .
+    environment:
+      KGRAG_NEO4J__URI: bolt://neo4j:7687
+      KGRAG_NEO4J__USER: neo4j
+      KGRAG_NEO4J__PASSWORD: password
+      KGRAG_QDRANT__URL: http://qdrant:6333
+      KGRAG_FUSEKI__URL: http://fuseki:3030
+      KGRAG_OLLAMA__BASE_URL: http://ollama:11434
+    ports:
+      - "8080:8080"
+    command: uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8080
+    depends_on:
+      - neo4j
+      - qdrant
+      - fuseki
+      - ollama
+
+volumes:
+  neo4j_data:
+  qdrant_data:
+  fuseki_data:
+  ollama_data:

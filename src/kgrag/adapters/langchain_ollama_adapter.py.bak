@@ -1,0 +1,138 @@
+"""
+langchain_ollama_adapter.py
+LangChain-compatible adapter for OllamaConnector to support tool binding
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Iterator, List, Optional, Dict, Union
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.outputs import ChatResult, ChatGeneration
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
+
+from kgrag.connectors.ollama import OllamaConnector
+from kgrag.core.config import OllamaConfig
+
+logger = logging.getLogger(__name__)
+
+
+class LangChainOllamaAdapter(BaseChatModel):
+    """
+    LangChain BaseChatModel adapter for OllamaConnector
+
+    This adapter makes the custom OllamaConnector compatible with LangChain's
+    tool binding and chat interfaces, enabling ReAct reasoning.
+    """
+
+    def __init__(self, ollama_connector: OllamaConnector, config: OllamaConfig):
+        super().__init__()
+        self.ollama_connector = ollama_connector
+        self.config = config
+
+    @property
+    def model_name(self) -> str:
+        """Return the model name."""
+        return self.config.generation_model
+
+    @property
+    def _llm_type(self) -> str:
+        """Return the LLM type."""
+        return "ollama"
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        """Return identifying parameters."""
+        return {
+            "model_name": self.model_name,
+            "base_url": self.config.base_url,
+        }
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Generate a response from messages."""
+        try:
+            # Convert LangChain messages to Ollama format
+            ollama_messages = self._convert_messages_to_ollama(messages)
+
+            # Get temperature from kwargs or config
+            temperature = kwargs.get("temperature", self.config.temperature)
+
+            # Generate response using OllamaConnector
+            response_text = self.ollama_connector.chat(
+                messages=ollama_messages,
+                temperature=temperature,
+            )
+
+            # Create LangChain response
+            message = AIMessage(content=response_text)
+            generation = ChatGeneration(message=message)
+            return ChatResult(generations=[generation])
+
+        except Exception as e:
+            logger.error(f"Error in _generate: {e}")
+            # Return error message
+            message = AIMessage(content=f"Error: {str(e)}")
+            generation = ChatGeneration(message=message)
+            return ChatResult(generations=[generation])
+
+    def bind_tools(
+        self,
+        tools: List[BaseTool],
+        **kwargs: Any,
+    ) -> "LangChainOllamaAdapter":
+        """Bind tools to the model for tool calling."""
+        # For now, we'll store the tools but not actually bind them
+        # since OllamaConnector doesn't support tool calling natively
+        # The ReAct logic will handle tool calling through prompt engineering
+        logger.warning("Tool binding requested but OllamaConnector doesn't support native tool calling. Using prompt-based approach.")
+        return self
+
+    def _convert_messages_to_ollama(self, messages: List[BaseMessage]) -> List[Dict[str, str]]:
+        """Convert LangChain messages to Ollama format."""
+        ollama_messages = []
+
+        for message in messages:
+            if isinstance(message, HumanMessage):
+                ollama_messages.append({"role": "user", "content": message.content})
+            elif isinstance(message, AIMessage):
+                ollama_messages.append({"role": "assistant", "content": message.content})
+            elif isinstance(message, SystemMessage):
+                ollama_messages.append({"role": "system", "content": message.content})
+            elif isinstance(message, ToolMessage):
+                # Tool messages are handled differently in Ollama
+                ollama_messages.append({"role": "tool", "content": message.content})
+            else:
+                # Default to user message
+                ollama_messages.append({"role": "user", "content": str(message.content)})
+
+        return ollama_messages
+
+    # Required abstract methods from BaseChatModel
+    def _stream(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGeneration]:
+        """Streaming is not implemented."""
+        raise NotImplementedError("Streaming not supported by OllamaConnector")
+
+    @property
+    def _default_params(self) -> Dict[str, Any]:
+        """Default parameters."""
+        return {
+            "model": self.model_name,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+        }</content>
+<parameter name="filePath">/home/fneubuerger/GraphQAAgent/src/kgrag/adapters/langchain_ollama_adapter.py

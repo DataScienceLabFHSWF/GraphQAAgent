@@ -1,0 +1,11 @@
+[
+  {
+    "question_id": "q01",
+    "question": "Welche Rückbauverfahren werden bei Reaktor A eingesetzt?",
+    "expected_answer": "Für Reaktor A werden die Verfahren X und Y eingesetzt.",
+    "expected_entities": ["Reaktor A", "Verfahren X", "Verfahren Y"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": "CQ-01"
+  }
+]

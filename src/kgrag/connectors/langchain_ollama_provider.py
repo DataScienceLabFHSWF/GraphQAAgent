@@ -1,0 +1,123 @@
+"""
+langchain_ollama_provider.py
+LangChain-based Ollama provider replacing the custom OllamaConnector
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.embeddings import Embeddings
+
+from kgrag.core.config import OllamaConfig
+
+logger = logging.getLogger(__name__)
+
+
+class LangChainOllamaProvider:
+    """
+    LangChain-based Ollama provider that replaces the custom OllamaConnector.
+
+    Provides both chat and embedding capabilities using LangChain's Ollama integration.
+    """
+
+    def __init__(self, config: OllamaConfig):
+        self.config = config
+
+        # Initialize ChatOllama for text generation
+        self.chat_model: BaseChatModel = ChatOllama(
+            model=config.generation_model,
+            base_url=config.base_url,
+            temperature=config.temperature,
+            num_ctx=config.max_tokens,
+            num_predict=config.max_tokens,
+        )
+
+        # Initialize OllamaEmbeddings for vector operations
+        self.embeddings: Embeddings = OllamaEmbeddings(
+            model=config.embedding_model,
+            base_url=config.base_url,
+        )
+
+        logger.info(f"LangChainOllamaProvider initialized with model {config.generation_model}")
+
+    async def connect(self) -> None:
+        """Verify connection to Ollama (LangChain handles this internally)."""
+        try:
+            # Test the connection by making a simple call
+            await self.chat_model.ainvoke("test")
+            logger.info("ollama.connected", base_url=self.config.base_url)
+        except Exception as exc:
+            logger.error(f"Cannot connect to Ollama: {exc}")
+            raise
+
+    async def close(self) -> None:
+        """No persistent connection to close."""
+        logger.info("ollama.closed")
+
+    # -- Generation methods (compatible with existing interface) --
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        """Generate text from a prompt."""
+        try:
+            response = await self.chat_model.ainvoke(prompt)
+            return response.content
+        except Exception as e:
+            logger.error(f"Generation failed: {e}")
+            return f"Error: {str(e)}"
+
+    async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Chat with message history."""
+        try:
+            # Convert messages to LangChain format
+            from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+            lc_messages = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+
+                if role == "user":
+                    lc_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    lc_messages.append(AIMessage(content=content))
+                elif role == "system":
+                    lc_messages.append(SystemMessage(content=content))
+                else:
+                    lc_messages.append(HumanMessage(content=content))
+
+            response = await self.chat_model.ainvoke(lc_messages)
+            return response.content
+        except Exception as e:
+            logger.error(f"Chat failed: {e}")
+            return f"Error: {str(e)}"
+
+    # -- Embedding methods (compatible with existing interface) --
+
+    async def embed(self, text: str) -> List[float]:
+        """Embed a single text."""
+        try:
+            return await self.embeddings.aembed_query(text)
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            return []
+
+    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """Embed multiple texts."""
+        try:
+            return await self.embeddings.aembed_documents(texts)
+        except Exception as e:
+            logger.error(f"Batch embedding failed: {e}")
+            return [[] for _ in texts]
+
+    # -- LangChain-specific methods --
+
+    def get_chat_model(self) -> BaseChatModel:
+        """Get the LangChain chat model for tool binding."""
+        return self.chat_model
+
+    def get_embeddings(self) -> Embeddings:
+        """Get the LangChain embeddings for vector operations."""
+        return self.embeddings
