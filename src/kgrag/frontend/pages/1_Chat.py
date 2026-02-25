@@ -43,7 +43,7 @@ with st.sidebar:
     st.subheader("Chat Settings")
     strategy = st.selectbox(
         "Retrieval Strategy",
-        ["hybrid_sota", "hybrid", "cypher", "graph_only", "vector_only"],
+        ["hybrid_sota", "agentic", "hybrid", "cypher", "graph_only", "vector_only"],
     )
     language = st.selectbox("Language", ["de", "en"])
 

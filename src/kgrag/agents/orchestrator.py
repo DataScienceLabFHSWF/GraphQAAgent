@@ -3,6 +3,7 @@
 Wires together all components into a complete GraphQA agent:
 - **Question parsing** + ontology expansion
 - **Three-way hybrid retrieval** (vector + graph + Think-on-Graph)
+- **Agentic retrieval** (LLM agent with tools for all strategies)
 - **Chain-of-Thought reasoning** (multi-hop decomposition)
 - **Answer generation** with KG-grounded context
 - **Answer verification** (faithfulness + entity coverage)
@@ -11,6 +12,8 @@ Wires together all components into a complete GraphQA agent:
 Strategies:
 - ``"vector_only"``: pure vector retrieval (baseline)
 - ``"graph_only"``: graph-only retrieval (baseline)
+- ``"cypher"``: LLM → Cypher → Neo4j (ontology-enhanced)
+- ``"agentic"``: tool-calling agent combining all strategies
 - ``"hybrid"``: two-way vector+graph fusion (standard)
 - ``"hybrid_sota"``: full SOTA pipeline with ToG + CoT + verification
 """
@@ -35,12 +38,14 @@ from kgrag.connectors.qdrant import QdrantConnector
 from kgrag.core.config import Settings
 from kgrag.core.models import QAAnswer, RetrievedContext
 from kgrag.core.protocols import Retriever
+from kgrag.retrieval.agentic_rag import AgenticGraphRAG
 from kgrag.retrieval.cypher import CypherRetriever
 from kgrag.retrieval.entity_linker import EntityLinker
 from kgrag.retrieval.graph import GraphRetriever
 from kgrag.retrieval.graph_reasoning import GraphReasoner
 from kgrag.retrieval.hybrid import HybridRetriever
 from kgrag.retrieval.ontology import OntologyRetriever
+from kgrag.retrieval.ontology_context import OntologyContext
 from kgrag.retrieval.path_ranker import PathRanker
 from kgrag.retrieval.reranker import CrossEncoderReranker
 from kgrag.retrieval.vector import VectorRetriever
@@ -75,10 +80,24 @@ class Orchestrator:
         self.reranker = CrossEncoderReranker(settings.retrieval.reranker_model)
         self.ontology_retriever = OntologyRetriever(self.fuseki)
 
+        # Ontology context (TBox loaded at startup)
+        self.ontology_context = OntologyContext(self.fuseki)
+
         # Cypher retriever (LLM → Cypher → Neo4j)
         self.cypher_retriever = CypherRetriever(
             neo4j_config=settings.neo4j,
             ollama=self.ollama,
+            config=settings.retrieval,
+            ontology_context=self.ontology_context,
+        )
+
+        # Agentic RAG (tool-calling agent combining all strategies)
+        self.agentic_retriever = AgenticGraphRAG(
+            neo4j=self.neo4j,
+            neo4j_config=settings.neo4j,
+            qdrant=self.qdrant,
+            ollama=self.ollama,
+            ontology_context=self.ontology_context,
             config=settings.retrieval,
         )
 
@@ -140,6 +159,16 @@ class Orchestrator:
         await self.qdrant.connect()
         await self.fuseki.connect()
         await self.ollama.connect()
+
+        # Load ontology TBox (best-effort — falls back gracefully)
+        try:
+            await self.ontology_context.load()
+            logger.info("orchestrator.ontology_loaded",
+                        classes=len(self.ontology_context.classes),
+                        props=len(self.ontology_context.properties))
+        except Exception as exc:
+            logger.warning("orchestrator.ontology_load_failed", error=str(exc))
+
         logger.info("orchestrator.started")
 
     async def shutdown(self) -> None:
@@ -273,6 +302,7 @@ class Orchestrator:
             "vector_only": self.vector_retriever,
             "graph_only": self.graph_retriever,
             "cypher": self.cypher_retriever,
+            "agentic": self.agentic_retriever,
             "hybrid": self.hybrid_retriever,
             "hybrid_sota": self.hybrid_sota_retriever,
         }

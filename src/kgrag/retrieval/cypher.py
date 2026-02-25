@@ -42,6 +42,8 @@ Generate ONLY valid Cypher. No explanation, no markdown fences.
 Schema:
 {schema}
 
+{ontology_section}
+
 CRITICAL DATA MODEL RULES:
 - Every node has: id (unique short name / abbreviation), label (full name),
   node_type, properties (JSON string with description, aliases, confidence).
@@ -70,8 +72,9 @@ Question: {question}
 Cypher:"""
 
 _CYPHER_PROMPT = PromptTemplate(
-    input_variables=["schema", "question"],
+    input_variables=["schema", "question", "ontology_section"],
     template=_CYPHER_GENERATION_TEMPLATE,
+    partial_variables={"ontology_section": ""},
 )
 
 _QA_GENERATION_TEMPLATE = """\
@@ -104,10 +107,12 @@ class CypherRetriever:
         neo4j_config: Neo4jConfig,
         ollama: LangChainOllamaProvider,
         config: RetrievalConfig | None = None,
+        ontology_context: "OntologyContext | None" = None,
     ) -> None:
         self._neo4j_config = neo4j_config
         self._ollama = ollama
         self._config = config
+        self._ontology = ontology_context
         self._graph: Neo4jGraph | None = None
         self._chain: GraphCypherQAChain | None = None
 
@@ -128,13 +133,22 @@ class CypherRetriever:
 
         llm = self._ollama.get_chat_model()
 
+        # Inject ontology schema summary into the prompt if available
+        cypher_prompt = _CYPHER_PROMPT
+        if self._ontology and self._ontology.schema_summary:
+            ontology_block = (
+                "ONTOLOGY (class hierarchy & typed properties):\n"
+                + self._ontology.schema_summary[:2000]
+            )
+            cypher_prompt = _CYPHER_PROMPT.partial(ontology_section=ontology_block)
+
         self._chain = GraphCypherQAChain.from_llm(
             llm=llm,
             graph=self._graph,
             verbose=False,
             allow_dangerous_requests=True,
             return_intermediate_steps=True,
-            cypher_prompt=_CYPHER_PROMPT,
+            cypher_prompt=cypher_prompt,
             qa_prompt=_QA_PROMPT,
             validate_cypher=True,
         )
