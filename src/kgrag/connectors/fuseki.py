@@ -13,6 +13,15 @@ from kgrag.core.models import OntologyClass, OntologyProperty
 
 logger = structlog.get_logger(__name__)
 
+# Standard SPARQL prefixes — auto-prepended to every query
+_SPARQL_PREFIXES = """\
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+"""
+
 
 class FusekiConnector:
     """Async client for the Fuseki SPARQL endpoint providing ontology access.
@@ -29,9 +38,13 @@ class FusekiConnector:
 
     async def connect(self) -> None:
         """Open HTTP client and verify the Fuseki endpoint."""
+        auth = None
+        if self._config.user and self._config.password:
+            auth = httpx.BasicAuth(self._config.user, self._config.password)
         self._client = httpx.AsyncClient(
             base_url=self._config.url,
             timeout=30.0,
+            auth=auth,
         )
         try:
             resp = await self._client.get(f"/{self._config.dataset}")
@@ -72,6 +85,9 @@ class FusekiConnector:
             return []
             
         try:
+            # Auto-prepend standard prefixes if not already present
+            if not sparql.strip().upper().startswith("PREFIX"):
+                sparql = _SPARQL_PREFIXES + sparql
             resp = await self._client.post(
                 f"/{self._config.dataset}/sparql",
                 data={"query": sparql},

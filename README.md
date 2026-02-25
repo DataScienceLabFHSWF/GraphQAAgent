@@ -75,6 +75,47 @@ docker-compose -f docker-compose.yml up -d qa-agent
 
 ### Interactive Usage
 
+### Demo helper script
+
+A convenience shell script `scripts/start_demo.sh` will kick off the containerised
+backends, the API server and the Streamlit frontend in one go.  It is
+smart about existing services:
+
+* If Neo4j (`7474`/`7687`) or Fuseki (`3030`) are already bound by other
+  projects the script detects the port usage and **skips** launching those
+  containers, assuming the existing instances host your data.
+* The API and frontend normally run on `8080` and `8501`, but if those ports
+  are in use the script will probe upwards for a free port and report the
+  actual values chosen.  Local processes listening on the selected ports are
+  killed so the new services can bind cleanly.
+
+The Streamlit container is configured with `API_URL=http://qa-agent:8080/api/v1`
+by default; override via environment variable or Streamlit secret if needed.
+
+Example:
+
+```bash
+chmod +x scripts/start_demo.sh
+./scripts/start_demo.sh               # start backend + ui (skips neo4j/fuseki if occupied)
+# or
+./scripts/start_demo.sh --no-frontend   # just services and API
+./scripts/start_demo.sh --no-docker     # API + frontend only
+./scripts/start_demo.sh --external-neo4j --external-fuseki   # always assume external DB services
+```
+
+Once the demo is running you can expose it publicly with ngrok:
+
+```bash
+ngrok http 8501   # tunnel the Streamlit UI
+ngrok http 8080   # tunnel the REST API
+```
+
+Make sure you stop any other Streamlit/Docker services that use the same ports;
+`start_demo.sh` will attempt to kill them automatically.
+
+
+# Interactive Usage
+
 ```bash
 # Interactive QA
 python scripts/run_qa.py
@@ -91,23 +132,6 @@ python scripts/run_evaluation.py
 # Start REST API (if not using Docker)
 uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8080
 ```
-
-## Current Development Status
-
-**🚨 Active Refactoring:** Comprehensive LangChain integration in progress
-
-### Recent Changes
-- ✅ **LangChain Migration:** Replaced custom OllamaConnector with LangChainOllamaProvider (ChatOllama + OllamaEmbeddings)
-- ✅ **Qdrant Compatibility:** Fixed AsyncQdrantClient API issues (updated to use `search()` method)
-- ✅ **Infrastructure:** Docker KG-RAG stack operational (Neo4j confirmed running)
-- ✅ **Tool Binding:** Implemented prompt-based ReAct reasoning with LangChain components
-
-### Known Issues
-- **API Functionality:** Qdrant search methods updated but untested
-- **Orchestration:** Still using custom patterns, not full LangChain agents
-- **Testing:** Needs validation of end-to-end QA pipeline
-
-See [BACKLOG.md](BACKLOG.md) for detailed current issues and development priorities.
 
 ## Project Structure
 

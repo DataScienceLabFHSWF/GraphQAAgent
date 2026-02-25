@@ -31,6 +31,19 @@ class Neo4jConnector:
         self._driver: AsyncDriver | None = None
         self._label = config.node_label  # e.g. "Entity"
 
+    @property
+    def _lbl(self) -> str:
+        """Cypher label clause, e.g. ':Facility' or '' (match all nodes).
+
+        The KGB graph stores entities with domain-specific labels
+        (Facility, Activity, Paragraf, …) rather than a single generic
+        ``Entity`` label.  When the configured label is the default
+        ``"Entity"`` we omit the label filter so queries match all nodes.
+        """
+        if self._label and self._label != "Entity":
+            return f":{self._label}"
+        return ""
+
     # -- lifecycle ----------------------------------------------------------
 
     async def connect(self) -> None:
@@ -65,12 +78,19 @@ class Neo4jConnector:
         *,
         limit: int = 20,
     ) -> list[KGEntity]:
-        """Case-insensitive label search across Entity nodes."""
+        """Multi-strategy entity search: ID, label, aliases, properties.
+
+        Searches by exact ID match first (e.g. "AtG"), then falls back
+        to case-insensitive CONTAINS on label and the JSON properties
+        field (which may contain aliases and descriptions).
+        """
         query = f"""
         UNWIND $labels AS term
-        MATCH (e:{self._label})
-        WHERE toLower(e.label) CONTAINS toLower(term)
-        RETURN e, labels(e) AS _labels
+        MATCH (e{self._lbl})
+        WHERE toLower(e.id) = toLower(term)
+           OR toLower(e.label) CONTAINS toLower(term)
+           OR toLower(e.properties) CONTAINS toLower(term)
+        RETURN DISTINCT e, labels(e) AS _labels
         LIMIT $limit
         """
         async with self.driver.session(database=self._config.database) as session:
@@ -82,7 +102,7 @@ class Neo4jConnector:
     async def find_entities_by_ids(self, entity_ids: list[str]) -> list[KGEntity]:
         """Fetch entities by their IDs."""
         query = f"""
-        MATCH (e:{self._label})
+        MATCH (e{self._lbl})
         WHERE e.id IN $ids
         RETURN e, labels(e) AS _labels
         """
@@ -102,9 +122,9 @@ class Neo4jConnector:
         max_nodes: int = 50,
     ) -> tuple[list[KGEntity], list[KGRelation]]:
         """Return the k-hop neighbourhood of the given entities."""
-        L = self._label
+        L = self._lbl
         query = f"""
-        MATCH (e:{L})-[r*1..{max_hops}]-(neighbour:{L})
+        MATCH (e{L})-[r*1..{max_hops}]-(neighbour{L})
         WHERE e.id IN $ids
         RETURN DISTINCT e, labels(e) AS _e_labels,
                r, neighbour, labels(neighbour) AS _n_labels
@@ -135,10 +155,10 @@ class Neo4jConnector:
         max_hops: int = 4,
     ) -> list[tuple[list[KGEntity], list[KGRelation]]]:
         """Find shortest paths between two entities."""
-        L = self._label
+        L = self._lbl
         query = f"""
         MATCH path = shortestPath(
-            (a:{L} {{id: $src}})-[*..{max_hops}]-(b:{L} {{id: $tgt}})
+            (a{L} {{id: $src}})-[*..{max_hops}]-(b{L} {{id: $tgt}})
         )
         RETURN path
         """
@@ -193,12 +213,14 @@ class Neo4jConnector:
         top_k: int = 20,
     ) -> list[tuple[KGEntity, float]]:
         """PPR via Neo4j Graph Data Science library."""
-        L = self._label
+        L = self._lbl
+        # GDS nodeProjection needs a concrete label; use _label or '*'
+        proj_label = self._label if self._label and self._label != "Entity" else "*"
         query = f"""
-        MATCH (source:{L})
+        MATCH (source{L})
         WHERE source.id IN $seeds
         CALL gds.pageRank.stream({{
-            nodeProjection: '{L}',
+            nodeProjection: '{proj_label}',
             relationshipProjection: {{ALL: {{type: '*', orientation: 'UNDIRECTED'}}}},
             dampingFactor: $damping,
             maxIterations: 20,
@@ -232,26 +254,26 @@ class Neo4jConnector:
         scores with damping, iterate until convergence or max iterations.
         """
         # Collect up to 3-hop neighbourhood with decaying scores
-        L = self._label
+        L = self._lbl
         query = f"""
-        MATCH (seed:{L})
+        MATCH (seed{L})
         WHERE seed.id IN $seeds
         WITH collect(seed) AS seeds
 
         // Hop 1
         UNWIND seeds AS s
-        OPTIONAL MATCH (s)-[r1]-(n1:{L})
+        OPTIONAL MATCH (s)-[r1]-(n1)
         WITH seeds, collect(DISTINCT n1) AS hop1, collect(DISTINCT r1) AS rels1
 
         // Hop 2
         UNWIND hop1 AS h1
-        OPTIONAL MATCH (h1)-[r2]-(n2:{L})
+        OPTIONAL MATCH (h1)-[r2]-(n2)
         WHERE NOT n2 IN seeds AND NOT n2 IN hop1
         WITH seeds, hop1, collect(DISTINCT n2) AS hop2
 
         // Hop 3
         UNWIND hop2 AS h2
-        OPTIONAL MATCH (h2)-[r3]-(n3:{L})
+        OPTIONAL MATCH (h2)-[r3]-(n3)
         WHERE NOT n3 IN seeds AND NOT n3 IN hop1 AND NOT n3 IN hop2
         WITH seeds, hop1, hop2, collect(DISTINCT n3) AS hop3
 
@@ -292,9 +314,9 @@ class Neo4jConnector:
         Used by Think-on-Graph iterative exploration to let the LLM decide
         which edges to follow.
         """
-        L = self._label
+        L = self._lbl
         query = f"""
-        MATCH (e:{L} {{id: $eid}})-[r]-(n:{L})
+        MATCH (e{L} {{id: $eid}})-[r]-(n)
         RETURN n, labels(n) AS _n_labels,
                r, type(r) AS _rel_type, e.id AS _src_id, n.id AS _tgt_id
         LIMIT $limit
@@ -327,13 +349,13 @@ class Neo4jConnector:
         Finds all paths of length ≤ max_hops between any pair of entities,
         producing a focused subgraph rather than a full k-hop expansion.
         """
-        L = self._label
+        L = self._lbl
         query = f"""
         UNWIND $ids AS src_id
         UNWIND $ids AS tgt_id
         WITH src_id, tgt_id WHERE src_id < tgt_id
-        MATCH (a:{L} {{id: src_id}})
-        MATCH (b:{L} {{id: tgt_id}})
+        MATCH (a{L} {{id: src_id}})
+        MATCH (b{L} {{id: tgt_id}})
         MATCH path = (a)-[*1..{max_hops}]-(b)
         UNWIND nodes(path) AS node
         UNWIND relationships(path) AS rel

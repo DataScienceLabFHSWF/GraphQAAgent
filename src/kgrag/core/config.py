@@ -32,6 +32,8 @@ class FusekiConfig(BaseModel):
 
     url: str = "http://localhost:3030"
     dataset: str = "kgbuilder"              # Must match KGB (see INTERFACE_CONTRACT.md §3)
+    user: str | None = None
+    password: str | None = None
 
 
 class OllamaConfig(BaseModel):

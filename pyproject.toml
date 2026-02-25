@@ -43,9 +43,22 @@ dependencies = [
 
     # --- Experiment Tracking ---
     "wandb>=0.16",
+
+    # --- Chat / Demo ---
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
+ui = [
+    "streamlit>=1.30",
+    "pyvis>=0.3",
+    "streamlit-agraph>=0.0.45",
+]
+hitl = [
+    "aiosqlite>=0.19",
+    "rdflib>=7.0",
+    "pyshacl>=0.25",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -63,6 +76,7 @@ eval = [
 
 [project.scripts]
 kgrag = "kgrag.cli:main"
+kgrag-demo = "kgrag.demo.demo_runner:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kgrag"]

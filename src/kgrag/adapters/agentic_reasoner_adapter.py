@@ -25,14 +25,20 @@ class AgenticReasonerAdapter:
     1. Converts KG-RAG DocumentChunk objects to LangChain Document format
     2. Integrates with KG-RAG's retrieval system for additional document fetching
     3. Provides ReAct reasoning capabilities to KG-RAG agents
+
+    The constructor accepts **either** a pre‑built ``llm`` (for testing) or an
+    ``ollama_provider`` instance used in the live system.  Both options are
+    supported to keep existing production code and unit tests happy.
     """
 
     def __init__(
         self,
-        ollama_provider: Any,  # LangChainOllamaProvider
+        *,
         retriever: Retriever,
         max_iterations: int = 3,
-        relevance_threshold: float = 0.3
+        relevance_threshold: float = 0.3,
+        ollama_provider: Any | None = None,  # LangChainOllamaProvider
+        llm: Any | None = None,  # BaseChatModel, for tests
     ):
         """
         Initialize the adapter
@@ -48,8 +54,13 @@ class AgenticReasonerAdapter:
         self.max_iterations = max_iterations
         self.relevance_threshold = relevance_threshold
 
-        # Get the LangChain chat model directly
-        self.llm = ollama_provider.get_chat_model()
+        # Resolve LLM: prefer explicit llm, otherwise ask provider
+        if llm is not None:
+            self.llm = llm
+        elif self.ollama_provider is not None:
+            self.llm = self.ollama_provider.get_chat_model()
+        else:  # pragma: no cover - should be prevented by caller
+            raise ValueError("AgenticReasonerAdapter requires either llm or ollama_provider")
 
         # Initialize the adapted retriever tool
         self.retriever_tool = KGRAGRetrieverTool(

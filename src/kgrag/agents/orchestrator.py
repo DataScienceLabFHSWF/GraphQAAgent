@@ -35,6 +35,7 @@ from kgrag.connectors.qdrant import QdrantConnector
 from kgrag.core.config import Settings
 from kgrag.core.models import QAAnswer, RetrievedContext
 from kgrag.core.protocols import Retriever
+from kgrag.retrieval.cypher import CypherRetriever
 from kgrag.retrieval.entity_linker import EntityLinker
 from kgrag.retrieval.graph import GraphRetriever
 from kgrag.retrieval.graph_reasoning import GraphReasoner
@@ -73,6 +74,13 @@ class Orchestrator:
         )
         self.reranker = CrossEncoderReranker(settings.retrieval.reranker_model)
         self.ontology_retriever = OntologyRetriever(self.fuseki)
+
+        # Cypher retriever (LLM → Cypher → Neo4j)
+        self.cypher_retriever = CypherRetriever(
+            neo4j_config=settings.neo4j,
+            ollama=self.ollama,
+            config=settings.retrieval,
+        )
 
         # SOTA components
         self.graph_reasoner = GraphReasoner(
@@ -231,7 +239,7 @@ class Orchestrator:
         # Phase 6: Answer verification (SOTA only)
         if strategy == "hybrid_sota" and reasoning_cfg.enable_answer_verification:
             verification = await self.answer_verifier.verify(
-                answer=answer, query=query, contexts=contexts
+                answer=answer, contexts=contexts
             )
             answer.verification = verification
 
@@ -264,6 +272,7 @@ class Orchestrator:
         retrievers: dict[str, Retriever] = {
             "vector_only": self.vector_retriever,
             "graph_only": self.graph_retriever,
+            "cypher": self.cypher_retriever,
             "hybrid": self.hybrid_retriever,
             "hybrid_sota": self.hybrid_sota_retriever,
         }
