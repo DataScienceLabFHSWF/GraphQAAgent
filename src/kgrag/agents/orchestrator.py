@@ -36,6 +36,7 @@ from kgrag.connectors.neo4j import Neo4jConnector
 from kgrag.connectors.langchain_ollama_provider import LangChainOllamaProvider
 from kgrag.connectors.qdrant import QdrantConnector
 from kgrag.core.config import Settings
+from kgrag.core.domain import DomainConfig
 from kgrag.core.models import QAAnswer, RetrievedContext
 from kgrag.core.protocols import Retriever
 from kgrag.retrieval.agentic_rag import AgenticGraphRAG
@@ -63,6 +64,9 @@ class Orchestrator:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
+        # Domain configuration (prompts, vocabulary, label mappings)
+        self.domain_config = DomainConfig.load()
+
         # Connectors
         self.neo4j = Neo4jConnector(settings.neo4j)
         self.qdrant = QdrantConnector(settings.qdrant)
@@ -81,7 +85,7 @@ class Orchestrator:
         self.ontology_retriever = OntologyRetriever(self.fuseki)
 
         # Ontology context (TBox loaded at startup)
-        self.ontology_context = OntologyContext(self.fuseki)
+        self.ontology_context = OntologyContext(self.fuseki, domain_config=self.domain_config)
 
         # Cypher retriever (LLM → Cypher → Neo4j)
         self.cypher_retriever = CypherRetriever(
@@ -89,6 +93,7 @@ class Orchestrator:
             ollama=self.ollama,
             config=settings.retrieval,
             ontology_context=self.ontology_context,
+            domain_config=self.domain_config,
         )
 
         # Agentic RAG (tool-calling agent combining all strategies)
@@ -99,6 +104,7 @@ class Orchestrator:
             ollama=self.ollama,
             ontology_context=self.ontology_context,
             config=settings.retrieval,
+            domain_config=self.domain_config,
         )
 
         # SOTA components
@@ -138,9 +144,11 @@ class Orchestrator:
         )
 
         # Agents
-        self.question_parser = QuestionParser(self.ollama)
+        self.question_parser = QuestionParser(self.ollama, domain_config=self.domain_config)
         self.context_assembler = ContextAssembler()
-        self.answer_generator = AnswerGenerator(self.ollama, self.context_assembler)
+        self.answer_generator = AnswerGenerator(
+            self.ollama, self.context_assembler, domain_config=self.domain_config,
+        )
         self.explainer = Explainer()
 
         # ReAct reasoner (initialized after retrievers)

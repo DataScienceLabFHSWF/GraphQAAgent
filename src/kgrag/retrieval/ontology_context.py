@@ -22,6 +22,17 @@ from kgrag.connectors.fuseki import FusekiConnector
 
 logger = structlog.get_logger(__name__)
 
+# Late import to avoid circular dependency (DomainConfig → domain.py)
+_DomainConfig = None
+
+
+def _get_domain_config_class():
+    global _DomainConfig
+    if _DomainConfig is None:
+        from kgrag.core.domain import DomainConfig
+        _DomainConfig = DomainConfig
+    return _DomainConfig
+
 
 @dataclass
 class OntologyClass:
@@ -56,8 +67,9 @@ class OntologyContext:
     - ``neo4j_to_ontology``: mapping from Neo4j labels to ontology class names
     """
 
-    def __init__(self, fuseki: FusekiConnector) -> None:
+    def __init__(self, fuseki: FusekiConnector, domain_config: Any = None) -> None:
         self._fuseki = fuseki
+        self._domain = domain_config
         self.classes: dict[str, OntologyClass] = {}
         self.properties: dict[str, OntologyProperty] = {}
         self.schema_summary: str = ""
@@ -156,27 +168,24 @@ class OntologyContext:
         """Map Neo4j node labels to ontology class names.
 
         Direct match by name works for most types (Facility, Action, State, etc.)
-        Special cases for the law graph labels that differ.
+        Additional mappings are loaded from DomainConfig if available.
         """
         # Direct 1:1 where Neo4j label == ontology class name
         for name in self.classes:
             self.neo4j_to_ontology[name] = name
 
-        # Known special mappings (law graph uses German labels)
-        self.neo4j_to_ontology.update({
-            "Gesetzbuch": "Regulation",
-            "Paragraf": "Regulation",
-            "Abschnitt": "Regulation",
-            "Regulation": "Regulation",
-            "Person": "Organization",
-            "Location": "Facility",
-            "Concept": "ProblemObject",
-            "DomainObject": "ProblemObject",
-            "Document": "Documentation",
-            "DocumentSection": "Documentation",
-            "FacilityComponent": "Component",
-            "Effect": "ActionEffect",
-        })
+        # Load additional mappings from domain config
+        if self._domain and hasattr(self._domain, 'neo4j_label_mapping'):
+            self.neo4j_to_ontology.update(self._domain.neo4j_label_mapping)
+        else:
+            # Try loading from default config
+            try:
+                DC = _get_domain_config_class()
+                cfg = DC.load()
+                if cfg.neo4j_label_mapping:
+                    self.neo4j_to_ontology.update(cfg.neo4j_label_mapping)
+            except Exception:
+                pass
 
     def _build_schema_summary(self) -> str:
         """Build a structured text summary for LLM prompts."""
@@ -207,12 +216,18 @@ class OntologyContext:
 
         # Relationship patterns for Cypher
         lines.append("Key Cypher patterns:")
-        lines.append("  (PlanningDomain)-[:hasAction]->(Action)-[:hasEffect]->(ActionEffect)")
-        lines.append("  (PlanningDomain)-[:hasProblem]->(PlanningProblem)-[:hasGoalState]->(GoalState)")
-        lines.append("  (PlanningDomain)-[:hasConstant]->(DomainConstant)")
-        lines.append("  (PlanningDomain)-[:hasRequirement]->(DomainRequirement)-[:solvedBy]->(Planner)")
-        lines.append("  (entity)-[:LINKED_GOVERNED_BY]->(Paragraf)-[:teilVon]->(Gesetzbuch)")
-        lines.append("  (Paragraf)-[:referenziert]->(Paragraf)")
+        patterns = []
+        if self._domain and hasattr(self._domain, 'cypher_patterns'):
+            patterns = self._domain.cypher_patterns
+        if not patterns:
+            try:
+                DC = _get_domain_config_class()
+                cfg = DC.load()
+                patterns = cfg.cypher_patterns
+            except Exception:
+                pass
+        for pattern in patterns:
+            lines.append(f"  {pattern}")
 
         return "\n".join(lines)
 
@@ -233,19 +248,19 @@ class OntologyContext:
 
     def _fallback_summary(self) -> str:
         """Minimal schema summary when Fuseki is unavailable."""
-        return """ONTOLOGY SCHEMA (TBox) — from domain knowledge:
-Classes: PlanningDomain, PlanningProblem, Action, MacroAction, ActionEffect,
-  ActionPrecondition, State, GoalState, InitialState, DomainConstant,
-  DomainPredicate, DomainRequirement, ProblemObject, Facility, Component,
-  Organization, Process, NuclearMaterial, WasteCategory, Transport, Permit,
-  Regulation, Documentation, Activity, SafetySystem, Planner, PlannerType,
-  Parameter, ParameterType, Plan
-Key relationships: hasAction, hasEffect, hasPrecondition, hasParameter,
-  hasProblem, hasGoalState, hasInitialState, hasObject, hasConstant,
-  hasPredicate, hasRequirement, solvedBy, solvesRequirement, governedBy,
-  referencesLaw, involves, produces, requires, issuedBy, isGeneratedBy
-Law graph: Gesetzbuch -[:teilVon]<- Paragraf -[:referenziert]-> Paragraf
-  Domain entities -[:LINKED_GOVERNED_BY]-> Paragraf"""
+        if self._domain:
+            rendered = self._domain.render_prompt("ontology_fallback")
+            if rendered:
+                return rendered
+        try:
+            DC = _get_domain_config_class()
+            cfg = DC.load()
+            rendered = cfg.render_prompt("ontology_fallback")
+            if rendered:
+                return rendered
+        except Exception:
+            pass
+        return "ONTOLOGY SCHEMA (TBox): no ontology information available."
 
     def get_relations_for_type(self, entity_type: str) -> list[str]:
         """Return relation names relevant for a given entity type."""

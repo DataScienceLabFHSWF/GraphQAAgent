@@ -42,6 +42,7 @@ from kgrag.core.models import (
     RetrievalSource,
     RetrievedContext,
 )
+from kgrag.core.domain import DomainConfig
 from kgrag.retrieval.ontology_context import OntologyContext
 
 logger = structlog.get_logger(__name__)
@@ -50,41 +51,6 @@ logger = structlog.get_logger(__name__)
 _MAX_ITERATIONS = 8
 # Max total contexts to collect before stopping
 _MAX_CONTEXTS = 25
-
-
-def _build_system_prompt(ontology_summary: str, neo4j_schema: str) -> str:
-    """Build the system prompt with full ontology + graph schema awareness."""
-    return f"""\
-You are a knowledge graph retrieval agent for a nuclear decommissioning domain.
-Your job is to gather comprehensive evidence from multiple sources to answer the user's question.
-You have access to tools for searching a vector store, querying a Neo4j knowledge graph via Cypher,
-exploring entity neighborhoods, finding connections between entities, and looking up ontology information.
-
-{ontology_summary}
-
-NEO4J GRAPH SCHEMA (actual database):
-{neo4j_schema}
-
-IMPORTANT DATA MODEL NOTES:
-- Every node has: id (short unique id/abbreviation), label (full name), node_type, properties (JSON string)
-- Law graph: Gesetzbuch (law books like AtG, StrlSchG) <-[:teilVon]- Paragraf -[:referenziert]-> Paragraf
-- Domain entities connect to laws via: entity -[:LINKED_GOVERNED_BY]-> Paragraf
-- The data is primarily in GERMAN. Key translations:
-  Stilllegung=decommissioning, Abbau=dismantling, Kernkraftwerk=nuclear power plant,
-  Genehmigung=permit, Strahlenschutz=radiation protection, Anlage=facility
-
-STRATEGY:
-1. Start by searching vectors for semantic context about the question
-2. If the question mentions specific entities (laws, facilities, domains), query the graph via Cypher
-3. For relationship questions, use find_connections to discover fact chains between entities
-4. Use explore_entity for multi-hop neighborhood discovery
-5. Use the ontology tool to understand what types/relations exist before writing complex Cypher
-6. Collect evidence from multiple sources for comprehensive answers
-7. IMPORTANT: Use find_connections when the question asks about relationships or connections between concepts
-8. When you have enough evidence (3-10 pieces), call collect_evidence to finalize
-
-Think step by step about which tools to use. DO NOT answer the question — just gather evidence.
-Respond ONLY with tool calls. When done gathering, call collect_evidence with all findings."""
 
 
 class AgenticGraphRAG:
@@ -107,6 +73,7 @@ class AgenticGraphRAG:
         ollama: LangChainOllamaProvider,
         ontology_context: OntologyContext,
         config: RetrievalConfig | None = None,
+        domain_config: DomainConfig | None = None,
     ) -> None:
         self._neo4j = neo4j
         self._neo4j_config = neo4j_config
@@ -114,6 +81,7 @@ class AgenticGraphRAG:
         self._ollama = ollama
         self._ontology = ontology_context
         self._config = config
+        self._domain = domain_config or DomainConfig.load()
         self._neo4j_graph = None  # Lazy-loaded Neo4jGraph for schema
 
     def _get_neo4j_schema(self) -> str:
@@ -153,7 +121,11 @@ class AgenticGraphRAG:
         # System prompt with ontology + schema
         neo4j_schema = self._get_neo4j_schema()
         system = SystemMessage(
-            content=_build_system_prompt(self._ontology.schema_summary, neo4j_schema)
+            content=self._domain.render_prompt(
+                "agentic_system",
+                ontology_summary=self._ontology.schema_summary,
+                neo4j_schema=neo4j_schema,
+            )
         )
         human = HumanMessage(content=query.raw_question)
 

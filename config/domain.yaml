@@ -1,0 +1,213 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Domain Configuration — Nuclear Decommissioning (Germany)
+#
+# Change this file to adapt the KG-RAG Agent to a different domain.
+# Every domain-specific prompt, vocabulary hint, and label mapping
+# lives here so the Python code stays domain-neutral.
+# ─────────────────────────────────────────────────────────────────────────────
+
+domain:
+  name: "Nuclear Decommissioning"
+  description: >-
+    German nuclear decommissioning regulatory and technical knowledge,
+    covering atomic law, radiation protection, facility dismantling,
+    and waste management.
+  language: "de"
+
+  # Vocabulary hints injected into LLM prompts so the model knows key
+  # domain terms — especially useful when the KG data is in a language
+  # different from the user's question.
+  vocabulary:
+    - term: "Stilllegung"
+      translation: "decommissioning"
+    - term: "Abbau"
+      translation: "dismantling"
+    - term: "Kernkraftwerk (KKW)"
+      translation: "nuclear power plant"
+    - term: "Anlage"
+      translation: "facility / plant"
+    - term: "Genehmigung"
+      translation: "permit / license"
+    - term: "Strahlenschutz"
+      translation: "radiation protection"
+    - term: "AtG"
+      translation: "Atomgesetz (Atomic Energy Act)"
+    - term: "StrlSchG"
+      translation: "Strahlenschutzgesetz (Radiation Protection Act)"
+    - term: "StrlSchV"
+      translation: "Strahlenschutzverordnung (Radiation Protection Ordinance)"
+    - term: "BBergG"
+      translation: "Bundesberggesetz (Federal Mining Act)"
+    - term: "BImSchG"
+      translation: "Bundes-Immissionsschutzgesetz (Federal Emission Control Act)"
+    - term: "KrWG"
+      translation: "Kreislaufwirtschaftsgesetz (Circular Economy Act)"
+
+  # Data model notes appended to prompts that generate Cypher or explore the graph.
+  # Describe the actual Neo4j schema so the LLM writes correct queries.
+  data_model_notes: |
+    - Every node has: id (short unique id/abbreviation), label (full name),
+      node_type, properties (JSON string with description, aliases, confidence).
+    - To find a node by name: WHERE n.id = 'name'
+      or WHERE toLower(n.label) CONTAINS toLower('search term')
+      or WHERE toLower(n.properties) CONTAINS toLower('term')
+    - Node labels (types) include: Gesetzbuch (law book), Paragraf (paragraph/section),
+      Facility, PlanningDomain, DomainConstant, Action, State, Organization, etc.
+    - Law graph: Gesetzbuch (law books like AtG, StrlSchG) <-[:teilVon]- Paragraf -[:referenziert]-> Paragraf
+    - Domain entities connect to laws via: entity -[:LINKED_GOVERNED_BY]-> Paragraf
+    - Key relationships: teilVon, referenziert, LINKED_GOVERNED_BY, LINKED_DEFINED_IN,
+      hasAction, hasPredicate, hasConstant, hasRequirement, hasGoalState, etc.
+    - Always LIMIT results to at most 25 rows.
+    - Prefer returning id, label, and properties over returning full nodes.
+
+  # Mapping from Neo4j node labels to ontology class names.
+  # Used by OntologyContext._build_neo4j_mapping().
+  neo4j_label_mapping:
+    Gesetzbuch: "Regulation"
+    Paragraf: "Regulation"
+    Abschnitt: "Regulation"
+    Regulation: "Regulation"
+    Person: "Organization"
+    Location: "Facility"
+    Concept: "ProblemObject"
+    DomainObject: "ProblemObject"
+    Document: "Documentation"
+    DocumentSection: "Documentation"
+    FacilityComponent: "Component"
+    Effect: "ActionEffect"
+
+  # Cypher patterns injected into ontology schema summary.
+  # Each entry is a human-readable Cypher path pattern.
+  cypher_patterns:
+    - "(PlanningDomain)-[:hasAction]->(Action)-[:hasEffect]->(ActionEffect)"
+    - "(PlanningDomain)-[:hasProblem]->(PlanningProblem)-[:hasGoalState]->(GoalState)"
+    - "(PlanningDomain)-[:hasConstant]->(DomainConstant)"
+    - "(PlanningDomain)-[:hasRequirement]->(DomainRequirement)-[:solvedBy]->(Planner)"
+    - "(entity)-[:LINKED_GOVERNED_BY]->(Paragraf)-[:teilVon]->(Gesetzbuch)"
+    - "(Paragraf)-[:referenziert]->(Paragraf)"
+
+  # Example entity types shown to the question parser for few-shot guidance.
+  example_entity_types:
+    - "Facility"
+    - "PlanningDomain"
+    - "Action"
+    - "Regulation"
+    - "Organization"
+    - "DomainConstant"
+
+  # Demo questions shown in the frontend chat.
+  demo_questions:
+    - "Welche Gesetze regeln den Rückbau von Kernkraftwerken?"
+    - "What entities are involved in decommissioning?"
+    - "What is the relationship between AtG and StrlSchG?"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Prompt templates
+#
+# Use {placeholders} for dynamic injection at runtime:
+#   {domain_name}       — domain.name
+#   {vocabulary_block}  — formatted vocabulary table
+#   {data_model_notes}  — domain.data_model_notes
+#   {ontology_summary}  — auto-generated from loaded ontology (OntologyContext)
+#   {neo4j_schema}      — auto-loaded from the Neo4j database
+#   {example_types}     — domain.example_entity_types joined
+# ─────────────────────────────────────────────────────────────────────────────
+
+prompts:
+  # ── Agentic retrieval agent system prompt ──────────────────────────────
+  agentic_system: |
+    You are a knowledge graph retrieval agent for {domain_name}.
+    Your job is to gather comprehensive evidence from multiple sources to answer the user's question.
+    You have access to tools for searching a vector store, querying a Neo4j knowledge graph via Cypher,
+    exploring entity neighborhoods, finding connections between entities, and looking up ontology information.
+
+    {ontology_summary}
+
+    NEO4J GRAPH SCHEMA (actual database):
+    {neo4j_schema}
+
+    IMPORTANT DATA MODEL NOTES:
+    {data_model_notes}
+
+    {vocabulary_block}
+
+    STRATEGY:
+    1. Start by searching vectors for semantic context about the question
+    2. If the question mentions specific entities, query the graph via Cypher
+    3. For relationship questions, use find_connections to discover fact chains between entities
+    4. Use explore_entity for multi-hop neighborhood discovery
+    5. Use the ontology tool to understand what types/relations exist before writing complex Cypher
+    6. Collect evidence from multiple sources for comprehensive answers
+    7. IMPORTANT: Use find_connections when the question asks about relationships or connections between concepts
+    8. When you have enough evidence (3-10 pieces), call collect_evidence to finalize
+
+    Think step by step about which tools to use. DO NOT answer the question — just gather evidence.
+    Respond ONLY with tool calls. When done gathering, call collect_evidence with all findings.
+
+  # ── Cypher generation prompt ───────────────────────────────────────────
+  cypher_generation: |
+    You are a Neo4j Cypher expert for a {domain_name} knowledge graph.
+    Generate ONLY valid Cypher. No explanation, no markdown fences.
+
+    Schema:
+    {{schema}}
+
+    {{ontology_section}}
+
+    CRITICAL DATA MODEL RULES:
+    {data_model_notes}
+
+    {vocabulary_block}
+
+    Question: {{question}}
+
+    Cypher:
+
+  # ── QA answer generation from Cypher results ──────────────────────────
+  cypher_qa: |
+    You are a helpful assistant for {domain_name} questions.
+    Use ONLY the following context from a Neo4j knowledge graph to answer.
+    If the context is empty or insufficient, say you don't have enough information.
+    Answer in the same language as the question.
+
+    Context from knowledge graph:
+    {{context}}
+
+    Question: {{question}}
+
+    Answer:
+
+  # ── Answer generator system prompt ─────────────────────────────────────
+  answer_generator: |
+    You are a QA agent for {domain_name} knowledge.
+    Answer the question using ONLY the provided context.
+    Cite your sources using [Source:N] markers (where N is the context number).
+    If the context does not contain enough information, say so explicitly.
+    Be precise and concise.
+
+  # ── Question parser system prompt ──────────────────────────────────────
+  question_parser: |
+    You are a question analysis expert for a {domain_name} knowledge graph.
+    Given a user question, produce a JSON object with EXACTLY these fields:
+    {{
+      "question_type": one of "factoid", "list", "boolean", "comparative", "causal", "aggregation",
+      "detected_entities": list of entity names mentioned in the question,
+      "detected_types": list of ontology class names (e.g. {example_types}),
+      "sub_questions": list of simpler sub-questions (empty if the question is already simple),
+      "language": "de" or "en"
+    }}
+    Return ONLY valid JSON, no explanation.
+
+  # ── Ontology fallback summary (when Fuseki is unavailable) ─────────────
+  ontology_fallback: |
+    ONTOLOGY SCHEMA (TBox) — from domain knowledge:
+    Classes: PlanningDomain, PlanningProblem, Action, MacroAction, ActionEffect,
+      ActionPrecondition, State, GoalState, InitialState, DomainConstant,
+      DomainPredicate, DomainRequirement, ProblemObject, Facility, Component,
+      Organization, Process, NuclearMaterial, WasteCategory, Transport, Permit,
+      Regulation, Documentation, Activity, SafetySystem, Planner, PlannerType,
+      Parameter, ParameterType, Plan
+    Key relationships: hasAction, hasEffect, hasPrecondition, hasParameter,
+      hasProblem, hasGoalState, hasInitialState, hasObject, hasConstant,
+      hasPredicate, hasRequirement, solvedBy, solvesRequirement, governedBy,
+      referencesLaw, involves, produces, requires, issuedBy, isGeneratedBy

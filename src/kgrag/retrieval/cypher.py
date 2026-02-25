@@ -20,6 +20,7 @@ from langchain_core.prompts import PromptTemplate
 
 from kgrag.connectors.langchain_ollama_provider import LangChainOllamaProvider
 from kgrag.core.config import Neo4jConfig, RetrievalConfig
+from kgrag.core.domain import DomainConfig
 from kgrag.core.models import (
     KGEntity,
     KGRelation,
@@ -32,11 +33,11 @@ from kgrag.core.models import (
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Domain-aware Cypher generation prompt
+# Default (domain-neutral) prompt templates — overridden by domain.yaml
 # ---------------------------------------------------------------------------
 
-_CYPHER_GENERATION_TEMPLATE = """\
-You are a Neo4j Cypher expert for a nuclear decommissioning knowledge graph.
+_DEFAULT_CYPHER_GENERATION_TEMPLATE = """\
+You are a Neo4j Cypher expert for a knowledge graph.
 Generate ONLY valid Cypher. No explanation, no markdown fences.
 
 Schema:
@@ -44,26 +45,7 @@ Schema:
 
 {ontology_section}
 
-CRITICAL DATA MODEL RULES:
-- Every node has: id (unique short name / abbreviation), label (full name),
-  node_type, properties (JSON string with description, aliases, confidence).
-- To find a node by name or abbreviation: WHERE n.id = 'name'
-  or WHERE toLower(n.label) CONTAINS toLower('search term')
-  or WHERE toLower(n.properties) CONTAINS toLower('term')
-- Node labels (types) include: Gesetzbuch (law book), Paragraf (paragraph/section),
-  Facility, PlanningDomain, DomainConstant, Action, State, Organization, etc.
-- Key relationships:
-  * teilVon (part of): Paragraf -[:teilVon]-> Gesetzbuch
-  * referenziert (references): Paragraf -[:referenziert]-> Paragraf
-  * LINKED_GOVERNED_BY: domain entities -[:LINKED_GOVERNED_BY]-> Paragraf
-  * hasAction, hasPredicate, hasConstant, hasRequirement, hasGoalState, etc.
-- The data is primarily in GERMAN. Common German terms:
-  * Stilllegung = decommissioning, Abbau = dismantling
-  * Kernkraftwerk (KKW) = nuclear power plant, Anlage = facility/plant
-  * Genehmigung = permit/license, Strahlenschutz = radiation protection
-  * AtG = Atomgesetz (Atomic Energy Act), StrlSchG = Strahlenschutzgesetz
-  * BBergG = Bundesberggesetz, BImSchG = Bundes-Immissionsschutzgesetz
-  * KrWG = Kreislaufwirtschaftsgesetz
+Rules:
 - Always LIMIT results to at most 25 rows.
 - Prefer returning id, label, and properties over returning full nodes.
 
@@ -71,14 +53,8 @@ Question: {question}
 
 Cypher:"""
 
-_CYPHER_PROMPT = PromptTemplate(
-    input_variables=["schema", "question", "ontology_section"],
-    template=_CYPHER_GENERATION_TEMPLATE,
-    partial_variables={"ontology_section": ""},
-)
-
-_QA_GENERATION_TEMPLATE = """\
-You are a helpful assistant for nuclear decommissioning and regulatory questions.
+_DEFAULT_QA_GENERATION_TEMPLATE = """\
+You are a helpful assistant.
 Use ONLY the following context from a Neo4j knowledge graph to answer.
 If the context is empty or insufficient, say you don't have enough information.
 Answer in the same language as the question.
@@ -90,10 +66,37 @@ Question: {question}
 
 Answer:"""
 
-_QA_PROMPT = PromptTemplate(
-    input_variables=["context", "question"],
-    template=_QA_GENERATION_TEMPLATE,
-)
+
+def _build_cypher_prompt(domain: DomainConfig | None) -> PromptTemplate:
+    """Build the Cypher generation prompt, optionally from DomainConfig."""
+    if domain:
+        rendered = domain.get_prompt_raw("cypher_generation")
+        if rendered:
+            return PromptTemplate(
+                input_variables=["schema", "question", "ontology_section"],
+                template=rendered.strip(),
+                partial_variables={"ontology_section": ""},
+            )
+    return PromptTemplate(
+        input_variables=["schema", "question", "ontology_section"],
+        template=_DEFAULT_CYPHER_GENERATION_TEMPLATE,
+        partial_variables={"ontology_section": ""},
+    )
+
+
+def _build_qa_prompt(domain: DomainConfig | None) -> PromptTemplate:
+    """Build the QA generation prompt, optionally from DomainConfig."""
+    if domain:
+        rendered = domain.get_prompt_raw("cypher_qa")
+        if rendered:
+            return PromptTemplate(
+                input_variables=["context", "question"],
+                template=rendered.strip(),
+            )
+    return PromptTemplate(
+        input_variables=["context", "question"],
+        template=_DEFAULT_QA_GENERATION_TEMPLATE,
+    )
 
 
 class CypherRetriever:
@@ -108,11 +111,13 @@ class CypherRetriever:
         ollama: LangChainOllamaProvider,
         config: RetrievalConfig | None = None,
         ontology_context: "OntologyContext | None" = None,
+        domain_config: DomainConfig | None = None,
     ) -> None:
         self._neo4j_config = neo4j_config
         self._ollama = ollama
         self._config = config
         self._ontology = ontology_context
+        self._domain = domain_config
         self._graph: Neo4jGraph | None = None
         self._chain: GraphCypherQAChain | None = None
 
@@ -133,14 +138,17 @@ class CypherRetriever:
 
         llm = self._ollama.get_chat_model()
 
+        # Build prompts from DomainConfig (falls back to defaults)
+        cypher_prompt = _build_cypher_prompt(self._domain)
+        qa_prompt = _build_qa_prompt(self._domain)
+
         # Inject ontology schema summary into the prompt if available
-        cypher_prompt = _CYPHER_PROMPT
         if self._ontology and self._ontology.schema_summary:
             ontology_block = (
                 "ONTOLOGY (class hierarchy & typed properties):\n"
                 + self._ontology.schema_summary[:2000]
             )
-            cypher_prompt = _CYPHER_PROMPT.partial(ontology_section=ontology_block)
+            cypher_prompt = cypher_prompt.partial(ontology_section=ontology_block)
 
         self._chain = GraphCypherQAChain.from_llm(
             llm=llm,
@@ -149,7 +157,7 @@ class CypherRetriever:
             allow_dangerous_requests=True,
             return_intermediate_steps=True,
             cypher_prompt=cypher_prompt,
-            qa_prompt=_QA_PROMPT,
+            qa_prompt=qa_prompt,
             validate_cypher=True,
         )
         logger.info("cypher_retriever.chain_ready")
