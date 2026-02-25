@@ -121,29 +121,64 @@ class Neo4jConnector:
         max_hops: int = 1,
         max_nodes: int = 50,
     ) -> tuple[list[KGEntity], list[KGRelation]]:
-        """Return the k-hop neighbourhood of the given entities."""
+        """Return the k-hop neighbourhood of the given entities.
+
+        Uses ``UNWIND relationships(path)`` to properly extract relationship
+        type and endpoints (variable-length patterns serialise relationships
+        as lists that lose type/endpoint info via ``.data()``).
+        """
         L = self._lbl
-        query = f"""
-        MATCH (e{L})-[r*1..{max_hops}]-(neighbour{L})
+        # Two separate queries: one for nodes, one for relationships
+        node_query = f"""
+        MATCH (e{L})-[*1..{max_hops}]-(neighbour)
         WHERE e.id IN $ids
-        RETURN DISTINCT e, labels(e) AS _e_labels,
-               r, neighbour, labels(neighbour) AS _n_labels
+        WITH DISTINCT neighbour
         LIMIT $max_nodes
+        RETURN neighbour AS node, labels(neighbour) AS _labels
+        UNION
+        MATCH (e{L})
+        WHERE e.id IN $ids
+        RETURN e AS node, labels(e) AS _labels
+        """
+        rel_query = f"""
+        MATCH path = (e{L})-[*1..{max_hops}]-(neighbour)
+        WHERE e.id IN $ids
+        WITH path LIMIT $max_nodes
+        UNWIND relationships(path) AS rel
+        WITH DISTINCT startNode(rel).id AS _src_id,
+             endNode(rel).id AS _tgt_id,
+             type(rel) AS _rel_type,
+             rel.confidence AS _conf
+        RETURN _src_id, _tgt_id, _rel_type, _conf
         """
         async with self.driver.session(database=self._config.database) as session:
-            result = await session.run(query, ids=entity_ids, max_nodes=max_nodes)
-            records = await result.data()
+            node_result = await session.run(node_query, ids=entity_ids, max_nodes=max_nodes)
+            node_records = await node_result.data()
+
+            rel_result = await session.run(rel_query, ids=entity_ids, max_nodes=max_nodes)
+            rel_records = await rel_result.data()
 
         entities: dict[str, KGEntity] = {}
-        relations: list[KGRelation] = []
+        for nr in node_records:
+            e = self._record_to_entity(nr["node"], neo4j_labels=nr.get("_labels"))
+            if e.id:
+                entities[e.id] = e
 
-        for rec in records:
-            e = self._record_to_entity(rec["e"], neo4j_labels=rec.get("_e_labels"))
-            entities[e.id] = e
-            n = self._record_to_entity(rec["neighbour"], neo4j_labels=rec.get("_n_labels"))
-            entities[n.id] = n
-            for rel in rec.get("r", []):
-                relations.append(self._record_to_relation(rel))
+        relations: list[KGRelation] = []
+        seen_rels: set[tuple[str, str, str]] = set()
+        for rr in rel_records:
+            src = rr.get("_src_id", "")
+            tgt = rr.get("_tgt_id", "")
+            rtype = rr.get("_rel_type", "")
+            key = (src, rtype, tgt)
+            if key not in seen_rels and src and tgt:
+                seen_rels.add(key)
+                relations.append(KGRelation(
+                    source_id=src,
+                    target_id=tgt,
+                    relation_type=rtype,
+                    confidence=float(rr.get("_conf", 0) or 0),
+                ))
 
         return list(entities.values()), relations
 
@@ -154,13 +189,25 @@ class Neo4jConnector:
         *,
         max_hops: int = 4,
     ) -> list[tuple[list[KGEntity], list[KGRelation]]]:
-        """Find shortest paths between two entities."""
+        """Find shortest paths between two entities.
+
+        Returns a list of (entities, relations) tuples representing each path.
+        """
         L = self._lbl
         query = f"""
         MATCH path = shortestPath(
             (a{L} {{id: $src}})-[*..{max_hops}]-(b{L} {{id: $tgt}})
         )
-        RETURN path
+        UNWIND nodes(path) AS node
+        WITH path, collect(DISTINCT {{node: node, _labels: labels(node)}}) AS path_nodes
+        UNWIND relationships(path) AS rel
+        RETURN path_nodes,
+               collect(DISTINCT {{
+                   _src_id: startNode(rel).id,
+                   _tgt_id: endNode(rel).id,
+                   _rel_type: type(rel),
+                   _conf: rel.confidence
+               }}) AS path_rels
         """
         async with self.driver.session(database=self._config.database) as session:
             result = await session.run(query, src=source_id, tgt=target_id)
@@ -168,9 +215,19 @@ class Neo4jConnector:
 
         paths: list[tuple[list[KGEntity], list[KGRelation]]] = []
         for rec in records:
-            path = rec["path"]
-            ents = [self._record_to_entity(n) for n in path.nodes]
-            rels = [self._record_to_relation(r) for r in path.relationships]
+            ents = [
+                self._record_to_entity(nr["node"], neo4j_labels=nr.get("_labels"))
+                for nr in rec.get("path_nodes", [])
+            ]
+            rels = [
+                KGRelation(
+                    source_id=rr.get("_src_id", ""),
+                    target_id=rr.get("_tgt_id", ""),
+                    relation_type=rr.get("_rel_type", ""),
+                    confidence=float(rr.get("_conf", 0) or 0),
+                )
+                for rr in rec.get("path_rels", [])
+            ]
             paths.append((ents, rels))
         return paths
 
@@ -318,7 +375,10 @@ class Neo4jConnector:
         query = f"""
         MATCH (e{L} {{id: $eid}})-[r]-(n)
         RETURN n, labels(n) AS _n_labels,
-               r, type(r) AS _rel_type, e.id AS _src_id, n.id AS _tgt_id
+               type(r) AS _rel_type,
+               startNode(r).id AS _src_id,
+               endNode(r).id AS _tgt_id,
+               r.confidence AS _conf
         LIMIT $limit
         """
         async with self.driver.session(database=self._config.database) as session:
@@ -328,11 +388,11 @@ class Neo4jConnector:
         return [
             (
                 self._record_to_entity(rec["n"], neo4j_labels=rec.get("_n_labels")),
-                self._record_to_relation(
-                    rec["r"],
-                    rel_type=rec.get("_rel_type"),
-                    src_id=rec.get("_src_id"),
-                    tgt_id=rec.get("_tgt_id"),
+                KGRelation(
+                    source_id=rec.get("_src_id", ""),
+                    target_id=rec.get("_tgt_id", ""),
+                    relation_type=rec.get("_rel_type", ""),
+                    confidence=float(rec.get("_conf", 0) or 0),
                 ),
             )
             for rec in records
@@ -350,7 +410,8 @@ class Neo4jConnector:
         producing a focused subgraph rather than a full k-hop expansion.
         """
         L = self._lbl
-        query = f"""
+        # Separate node and relationship queries to avoid serialization issues
+        node_query = f"""
         UNWIND $ids AS src_id
         UNWIND $ids AS tgt_id
         WITH src_id, tgt_id WHERE src_id < tgt_id
@@ -358,29 +419,48 @@ class Neo4jConnector:
         MATCH (b{L} {{id: tgt_id}})
         MATCH path = (a)-[*1..{max_hops}]-(b)
         UNWIND nodes(path) AS node
+        WITH DISTINCT node, labels(node) AS _labels
+        RETURN node, _labels
+        """
+        rel_query = f"""
+        UNWIND $ids AS src_id
+        UNWIND $ids AS tgt_id
+        WITH src_id, tgt_id WHERE src_id < tgt_id
+        MATCH (a{L} {{id: src_id}})
+        MATCH (b{L} {{id: tgt_id}})
+        MATCH path = (a)-[*1..{max_hops}]-(b)
         UNWIND relationships(path) AS rel
-        WITH DISTINCT node, labels(node) AS _labels, rel,
+        WITH DISTINCT startNode(rel).id AS _src_id,
+             endNode(rel).id AS _tgt_id,
              type(rel) AS _rel_type,
-             startNode(rel).id AS _src_id,
-             endNode(rel).id AS _tgt_id
-        RETURN node, _labels, rel, _rel_type, _src_id, _tgt_id
+             rel.confidence AS _conf
+        RETURN _src_id, _tgt_id, _rel_type, _conf
         """
         async with self.driver.session(database=self._config.database) as session:
-            result = await session.run(query, ids=entity_ids)
-            records = await result.data()
+            node_result = await session.run(node_query, ids=entity_ids)
+            node_records = await node_result.data()
+
+            rel_result = await session.run(rel_query, ids=entity_ids)
+            rel_records = await rel_result.data()
 
         entities: dict[str, KGEntity] = {}
-        relations: dict[tuple[str, str, str], KGRelation] = {}
-        for rec in records:
+        for rec in node_records:
             e = self._record_to_entity(rec["node"], neo4j_labels=rec.get("_labels"))
             entities[e.id] = e
-            r = self._record_to_relation(
-                rec["rel"],
-                rel_type=rec.get("_rel_type"),
-                src_id=rec.get("_src_id"),
-                tgt_id=rec.get("_tgt_id"),
-            )
-            relations[(r.source_id, r.relation_type, r.target_id)] = r
+
+        relations: dict[tuple[str, str, str], KGRelation] = {}
+        for rec in rel_records:
+            src = rec.get("_src_id", "")
+            tgt = rec.get("_tgt_id", "")
+            rtype = rec.get("_rel_type", "")
+            key = (src, rtype, tgt)
+            if key not in relations and src and tgt:
+                relations[key] = KGRelation(
+                    source_id=src,
+                    target_id=tgt,
+                    relation_type=rtype,
+                    confidence=float(rec.get("_conf", 0) or 0),
+                )
 
         return list(entities.values()), list(relations.values())
 

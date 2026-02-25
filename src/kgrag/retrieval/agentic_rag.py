@@ -5,12 +5,17 @@ It uses an LLM agent with tool-calling to dynamically decide:
 - When to search vectors (semantic similarity over document chunks)
 - When to generate and run Cypher (structured graph queries)
 - When to explore multi-hop neighborhoods (entity-centric traversal)
+- When to find connections between entities (shortest-path fact chains)
 - When to consult the ontology (what types/relations exist)
 - When it has enough context to stop
 
 The agent is ontology-informed: the full TBox schema is injected into its
 system prompt so it understands what classes, properties, and hierarchies
 exist in the knowledge graph.
+
+**Graph reasoning** is implemented via ``find_connections``: shortest-path
+traversal produces verifiable *fact chains* where every claim is grounded
+in specific KG entity IDs and relation types.
 
 Implements the ``Retriever`` protocol.
 """
@@ -20,11 +25,10 @@ from __future__ import annotations
 import json
 import asyncio
 import structlog
-from typing import Any, Annotated
+from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_core.language_models.chat_models import BaseChatModel
 
 from kgrag.connectors.neo4j import Neo4jConnector
 from kgrag.connectors.langchain_ollama_provider import LangChainOllamaProvider
@@ -43,9 +47,9 @@ from kgrag.retrieval.ontology_context import OntologyContext
 logger = structlog.get_logger(__name__)
 
 # Max iterations for the agent loop to prevent infinite loops
-_MAX_ITERATIONS = 6
+_MAX_ITERATIONS = 8
 # Max total contexts to collect before stopping
-_MAX_CONTEXTS = 20
+_MAX_CONTEXTS = 25
 
 
 def _build_system_prompt(ontology_summary: str, neo4j_schema: str) -> str:
@@ -54,7 +58,7 @@ def _build_system_prompt(ontology_summary: str, neo4j_schema: str) -> str:
 You are a knowledge graph retrieval agent for a nuclear decommissioning domain.
 Your job is to gather comprehensive evidence from multiple sources to answer the user's question.
 You have access to tools for searching a vector store, querying a Neo4j knowledge graph via Cypher,
-exploring entity neighborhoods, and looking up ontology information.
+exploring entity neighborhoods, finding connections between entities, and looking up ontology information.
 
 {ontology_summary}
 
@@ -72,10 +76,12 @@ IMPORTANT DATA MODEL NOTES:
 STRATEGY:
 1. Start by searching vectors for semantic context about the question
 2. If the question mentions specific entities (laws, facilities, domains), query the graph via Cypher
-3. For relationship questions, explore multi-hop neighborhoods
-4. Use the ontology tool to understand what types/relations exist before writing complex Cypher
-5. Collect evidence from multiple sources for comprehensive answers
-6. When you have enough evidence (3-10 pieces), call collect_evidence to finalize
+3. For relationship questions, use find_connections to discover fact chains between entities
+4. Use explore_entity for multi-hop neighborhood discovery
+5. Use the ontology tool to understand what types/relations exist before writing complex Cypher
+6. Collect evidence from multiple sources for comprehensive answers
+7. IMPORTANT: Use find_connections when the question asks about relationships or connections between concepts
+8. When you have enough evidence (3-10 pieces), call collect_evidence to finalize
 
 Think step by step about which tools to use. DO NOT answer the question — just gather evidence.
 Respond ONLY with tool calls. When done gathering, call collect_evidence with all findings."""
@@ -88,6 +94,7 @@ class AgenticGraphRAG:
     - ``search_vectors``: Semantic search over document chunks
     - ``query_graph``: Run Cypher queries against Neo4j
     - ``explore_entity``: Multi-hop neighborhood expansion
+    - ``find_connections``: Shortest-path fact chains between entities
     - ``lookup_ontology``: Check available types, relations, hierarchy
     - ``collect_evidence``: Finalize collected evidence (signals done)
     """
@@ -141,7 +148,6 @@ class AgenticGraphRAG:
             llm_with_tools = llm.bind_tools(tools)
         except Exception as exc:
             logger.warning("agentic.bind_tools_failed", error=str(exc))
-            # Fallback: just do vector + cypher in parallel
             return await self._fallback_retrieve(query)
 
         # System prompt with ontology + schema
@@ -155,6 +161,7 @@ class AgenticGraphRAG:
         collected_contexts: list[RetrievedContext] = []
         collected_entities: list[KGEntity] = []
         collected_relations: list[KGRelation] = []
+        fact_chains: list[dict[str, Any]] = []
 
         for iteration in range(1, _MAX_ITERATIONS + 1):
             logger.info("agentic.iteration", iteration=iteration)
@@ -178,36 +185,52 @@ class AgenticGraphRAG:
                 tool_args = tc["args"]
                 tool_id = tc.get("id", tool_name)
 
-                logger.info("agentic.tool_call", tool=tool_name, args_keys=list(tool_args.keys()))
+                logger.info(
+                    "agentic.tool_call",
+                    tool=tool_name,
+                    args_keys=list(tool_args.keys()),
+                )
 
                 if tool_name == "collect_evidence":
-                    # Terminal tool — agent is done
                     summary = tool_args.get("summary", "")
-                    logger.info("agentic.done", summary=summary[:100], contexts=len(collected_contexts))
-                    messages.append(ToolMessage(content="Evidence collected.", tool_call_id=tool_id))
-                    # Return what we have
-                    return self._finalize(collected_contexts, collected_entities, collected_relations)
+                    logger.info(
+                        "agentic.done",
+                        summary=summary[:100],
+                        contexts=len(collected_contexts),
+                    )
+                    messages.append(
+                        ToolMessage(content="Evidence collected.", tool_call_id=tool_id)
+                    )
+                    return self._finalize(
+                        collected_contexts, collected_entities,
+                        collected_relations, fact_chains,
+                    )
 
                 if tool_name in tool_map:
                     try:
                         result = await tool_map[tool_name].ainvoke(tool_args)
-                        result_str = result if isinstance(result, str) else json.dumps(result, default=str)
+                        result_str = (
+                            result if isinstance(result, str)
+                            else json.dumps(result, default=str)
+                        )
 
                         # Parse results and accumulate contexts
-                        new_ctxs, new_ents, new_rels = self._parse_tool_result(
-                            tool_name, tool_args, result_str
+                        new_ctxs, new_ents, new_rels, new_chains = self._parse_tool_result(
+                            tool_name, tool_args, result_str,
                         )
                         collected_contexts.extend(new_ctxs)
                         collected_entities.extend(new_ents)
                         collected_relations.extend(new_rels)
+                        fact_chains.extend(new_chains)
 
-                        # Truncate result for message history
                         messages.append(ToolMessage(
                             content=result_str[:3000],
                             tool_call_id=tool_id,
                         ))
                     except Exception as exc:
-                        logger.warning("agentic.tool_error", tool=tool_name, error=str(exc))
+                        logger.warning(
+                            "agentic.tool_error", tool=tool_name, error=str(exc),
+                        )
                         messages.append(ToolMessage(
                             content=f"Error: {str(exc)[:200]}",
                             tool_call_id=tool_id,
@@ -218,12 +241,17 @@ class AgenticGraphRAG:
                         tool_call_id=tool_id,
                     ))
 
-            # Check if we have enough
             if len(collected_contexts) >= _MAX_CONTEXTS:
-                logger.info("agentic.max_contexts_reached", contexts=len(collected_contexts))
+                logger.info(
+                    "agentic.max_contexts_reached",
+                    contexts=len(collected_contexts),
+                )
                 break
 
-        return self._finalize(collected_contexts, collected_entities, collected_relations)
+        return self._finalize(
+            collected_contexts, collected_entities,
+            collected_relations, fact_chains,
+        )
 
     # -- Tool definitions ---------------------------------------------------
 
@@ -274,12 +302,11 @@ class AgenticGraphRAG:
                 if not records:
                     return "Query returned 0 rows."
 
-                # Serialize, handling Neo4j types
                 lines = []
                 for rec in records[:25]:
                     row = {}
                     for k, v in rec.items():
-                        if hasattr(v, "items"):  # Node
+                        if hasattr(v, "items"):
                             row[k] = dict(v)
                         else:
                             row[k] = v
@@ -291,27 +318,109 @@ class AgenticGraphRAG:
         @tool
         async def explore_entity(entity_id: str, max_hops: int = 1) -> str:
             """Explore the neighborhood of a specific entity in the knowledge graph.
-            Returns connected entities and relationships (multi-hop).
-            Use this to find what's connected to a specific entity.
+            Returns connected entities and relationships as structured JSON.
+            Use this to discover what is connected to a specific entity.
             Input: entity_id (e.g. 'AtG', 'ent_rule_0000'), max_hops (1-3)."""
             try:
                 hops = min(max(max_hops, 1), 3)
                 entities, relations = await neo4j.get_neighbourhood(
                     [entity_id], max_hops=hops, max_nodes=30,
                 )
+                # Fallback: search by label if ID not found
                 if not entities and not relations:
-                    return f"No neighbors found for '{entity_id}'."
+                    found = await neo4j.find_entities_by_label([entity_id], limit=3)
+                    if found:
+                        entities, relations = await neo4j.get_neighbourhood(
+                            [f.id for f in found], max_hops=hops, max_nodes=30,
+                        )
+                        if not entities:
+                            entities = found
 
-                lines = [f"Neighborhood of '{entity_id}' ({hops}-hop):"]
-                lines.append(f"Entities ({len(entities)}):")
-                for e in entities[:15]:
-                    lines.append(f"  [{e.entity_type}] {e.id}: {e.label[:60]}")
-                lines.append(f"Relations ({len(relations)}):")
-                for r in relations[:20]:
-                    lines.append(f"  {r.source_id} -[{r.relation_type}]-> {r.target_id}")
-                return "\n".join(lines)
+                if not entities and not relations:
+                    return json.dumps({"error": f"No data found for '{entity_id}'."})
+
+                result = {
+                    "entity_id": entity_id,
+                    "hops": hops,
+                    "entities": [
+                        {
+                            "id": e.id,
+                            "label": e.label[:80],
+                            "type": e.entity_type,
+                        }
+                        for e in entities[:20]
+                    ],
+                    "relations": [
+                        {
+                            "src": r.source_id,
+                            "type": r.relation_type,
+                            "tgt": r.target_id,
+                        }
+                        for r in relations[:30]
+                    ],
+                }
+                return json.dumps(result, ensure_ascii=False)
             except Exception as e:
-                return f"Explore error: {e}"
+                return json.dumps({"error": f"Explore error: {e}"})
+
+        @tool
+        async def find_connections(source_id: str, target_id: str, max_hops: int = 4) -> str:
+            """Find shortest paths between two entities in the knowledge graph.
+            Returns fact chains: verifiable sequences of entity-relation-entity
+            triples that connect the two entities.
+            Use this when the question asks about relationships or connections
+            between two concepts (e.g. how law X relates to domain Y).
+            Input: source_id and target_id (entity IDs), max_hops (1-6)."""
+            try:
+                hops = min(max(max_hops, 1), 6)
+                paths = await neo4j.find_shortest_paths(
+                    source_id, target_id, max_hops=hops,
+                )
+                if not paths:
+                    # Try label search fallback
+                    src_found = await neo4j.find_entities_by_label([source_id], limit=1)
+                    tgt_found = await neo4j.find_entities_by_label([target_id], limit=1)
+                    if src_found and tgt_found:
+                        paths = await neo4j.find_shortest_paths(
+                            src_found[0].id, tgt_found[0].id, max_hops=hops,
+                        )
+
+                if not paths:
+                    return json.dumps({
+                        "source": source_id,
+                        "target": target_id,
+                        "paths": [],
+                        "message": "No paths found between these entities.",
+                    })
+
+                result_paths = []
+                for path_ents, path_rels in paths:
+                    chain_steps = []
+                    for rel in path_rels:
+                        chain_steps.append(
+                            f"{rel.source_id} -[{rel.relation_type}]-> {rel.target_id}"
+                        )
+                    result_paths.append({
+                        "nodes": [e.id for e in path_ents],
+                        "node_labels": {e.id: e.label[:60] for e in path_ents},
+                        "edges": [
+                            {
+                                "src": r.source_id,
+                                "type": r.relation_type,
+                                "tgt": r.target_id,
+                            }
+                            for r in path_rels
+                        ],
+                        "chain": " → ".join(chain_steps) if chain_steps else "direct",
+                    })
+
+                return json.dumps({
+                    "source": source_id,
+                    "target": target_id,
+                    "paths": result_paths,
+                }, ensure_ascii=False)
+            except Exception as e:
+                return json.dumps({"error": f"Path finding error: {e}"})
 
         @tool
         async def lookup_ontology(class_name: str = "", relation_name: str = "") -> str:
@@ -342,14 +451,20 @@ class AgenticGraphRAG:
             if relation_name and relation_name in ontology.properties:
                 prop = ontology.properties[relation_name]
                 lines.append(f"Relation: {prop.name} ({prop.prop_type})")
-                lines.append(f"  Domain: {prop.domain} → Range: {prop.range}")
+                lines.append(f"  Domain: {prop.domain} -> Range: {prop.range}")
             elif relation_name:
                 lines.append(f"Relation '{relation_name}' not in ontology.")
                 lines.append(f"Available: {', '.join(sorted(ontology.properties.keys()))}")
 
             if not class_name and not relation_name:
-                lines.append(f"Classes ({len(ontology.classes)}): {', '.join(sorted(ontology.classes.keys()))}")
-                lines.append(f"Relations ({len(ontology.properties)}): {', '.join(sorted(ontology.properties.keys()))}")
+                lines.append(
+                    f"Classes ({len(ontology.classes)}): "
+                    f"{', '.join(sorted(ontology.classes.keys()))}"
+                )
+                lines.append(
+                    f"Relations ({len(ontology.properties)}): "
+                    f"{', '.join(sorted(ontology.properties.keys()))}"
+                )
 
             return "\n".join(lines) if lines else "No ontology info found."
 
@@ -359,7 +474,10 @@ class AgenticGraphRAG:
             Input: a brief summary of what evidence was collected and from which sources."""
             return "Evidence collection complete."
 
-        return [search_vectors, query_graph, explore_entity, lookup_ontology, collect_evidence]
+        return [
+            search_vectors, query_graph, explore_entity,
+            find_connections, lookup_ontology, collect_evidence,
+        ]
 
     # -- Result parsing and finalization ------------------------------------
 
@@ -368,133 +486,314 @@ class AgenticGraphRAG:
         tool_name: str,
         tool_args: dict[str, Any],
         result_str: str,
-    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation]]:
-        """Parse a tool result into RetrievedContexts."""
+    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation], list[dict[str, Any]]]:
+        """Parse a tool result into contexts, entities, relations, and fact chains."""
+        if tool_name == "search_vectors":
+            return self._parse_vector_result(result_str)
+        elif tool_name == "query_graph":
+            return self._parse_cypher_result(tool_args, result_str)
+        elif tool_name == "explore_entity":
+            return self._parse_explore_result(tool_args, result_str)
+        elif tool_name == "find_connections":
+            return self._parse_path_result(result_str)
+        elif tool_name == "lookup_ontology":
+            return self._parse_ontology_result(result_str)
+        return [], [], [], []
+
+    def _parse_vector_result(
+        self, result_str: str,
+    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation], list[dict[str, Any]]]:
+        """Parse vector search results."""
+        contexts: list[RetrievedContext] = []
+        chunks = result_str.split("\n---\n")
+        for i, chunk in enumerate(chunks):
+            if chunk.startswith("No vector") or chunk.startswith("Vector search error"):
+                continue
+            contexts.append(RetrievedContext(
+                source=RetrievalSource.VECTOR,
+                text=chunk,
+                score=0.9 - (i * 0.05),
+                provenance=Provenance(
+                    retrieval_strategy="agentic_vector",
+                    retrieval_score=0.9 - (i * 0.05),
+                ),
+            ))
+        return contexts, [], [], []
+
+    def _parse_cypher_result(
+        self,
+        tool_args: dict[str, Any],
+        result_str: str,
+    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation], list[dict[str, Any]]]:
+        """Parse Cypher query results — extract entities from JSON rows."""
         contexts: list[RetrievedContext] = []
         entities: list[KGEntity] = []
-        relations: list[KGRelation] = []
 
-        if tool_name == "search_vectors":
-            # Split by separator and create one context per chunk
-            chunks = result_str.split("\n---\n")
-            for i, chunk in enumerate(chunks):
-                if chunk.startswith("No vector") or chunk.startswith("Vector search error"):
-                    continue
-                contexts.append(RetrievedContext(
-                    source=RetrievalSource.VECTOR,
-                    text=chunk,
-                    score=0.9 - (i * 0.05),
-                    provenance=Provenance(
-                        retrieval_strategy="agentic_vector",
-                        retrieval_score=0.9 - (i * 0.05),
-                    ),
-                ))
+        if "rows:" not in result_str:
+            return contexts, entities, [], []
 
-        elif tool_name == "query_graph":
-            # Parse Cypher results
-            cypher = tool_args.get("cypher", "")
-            if "rows:" in result_str:
-                lines = result_str.split("\n")[1:]  # Skip header
-                for i, line in enumerate(lines):
-                    try:
-                        row = json.loads(line)
-                        eid = row.get("id", row.get("n.id", ""))
-                        elabel = row.get("label", row.get("n.label", str(row)[:100]))
-                        etype = row.get("type", row.get("n.node_type", ""))
+        lines = result_str.split("\n")[1:]  # Skip header
+        for i, line in enumerate(lines):
+            try:
+                row = json.loads(line)
+                # Try multiple key patterns for entity extraction
+                eid = row.get("id", row.get("n.id", row.get("e.id", "")))
+                elabel = row.get("label", row.get("n.label", row.get("e.label", str(row)[:100])))
+                etype = row.get("type", row.get("n.node_type", row.get("node_type", "")))
 
-                        if eid:
-                            entities.append(KGEntity(
-                                id=eid, label=str(elabel), entity_type=str(etype),
-                                confidence=1.0,
-                            ))
-
-                        contexts.append(RetrievedContext(
-                            source=RetrievalSource.GRAPH,
-                            text=f"{elabel} [{etype}]" if elabel else line[:200],
-                            score=1.0 - (i * 0.02),
-                            provenance=Provenance(
-                                entity_ids=[eid] if eid else [],
-                                retrieval_strategy="agentic_cypher",
-                                retrieval_score=1.0 - (i * 0.02),
-                            ),
-                        ))
-                    except json.JSONDecodeError:
-                        contexts.append(RetrievedContext(
-                            source=RetrievalSource.GRAPH,
-                            text=line[:300],
-                            score=0.5,
-                            provenance=Provenance(
-                                retrieval_strategy="agentic_cypher",
-                                retrieval_score=0.5,
-                            ),
-                        ))
-
-        elif tool_name == "explore_entity":
-            entity_id = tool_args.get("entity_id", "")
-            # The whole exploration result as one context
-            if not result_str.startswith("No neighbors") and not result_str.startswith("Explore error"):
-                # Parse entities and relations from the text
-                for line in result_str.split("\n"):
-                    line = line.strip()
-                    if line.startswith("[") and "]" in line:
-                        # Entity line: [Type] id: label
-                        try:
-                            etype = line[1:line.index("]")]
-                            rest = line[line.index("]")+2:]
-                            eid, elabel = rest.split(": ", 1)
-                            entities.append(KGEntity(
-                                id=eid.strip(), label=elabel.strip(),
-                                entity_type=etype, confidence=0.9,
-                            ))
-                        except (ValueError, IndexError):
-                            pass
-                    elif "-[" in line and "]->" in line:
-                        # Relation line: src -[type]-> tgt
-                        try:
-                            src = line.split(" -[")[0].strip()
-                            rtype = line.split("-[")[1].split("]->")[0]
-                            tgt = line.split("]-> ")[1].strip()
-                            relations.append(KGRelation(
-                                source_id=src, target_id=tgt,
-                                relation_type=rtype, confidence=0.9,
-                            ))
-                        except (ValueError, IndexError):
-                            pass
+                if eid:
+                    entities.append(KGEntity(
+                        id=str(eid), label=str(elabel), entity_type=str(etype),
+                        confidence=1.0,
+                    ))
 
                 contexts.append(RetrievedContext(
                     source=RetrievalSource.GRAPH,
-                    text=result_str,
-                    score=0.85,
-                    subgraph=[*entities, *relations],
+                    text=f"{elabel} [{etype}]" if elabel else line[:200],
+                    score=1.0 - (i * 0.02),
                     provenance=Provenance(
-                        entity_ids=[entity_id] + [e.id for e in entities[:10]],
-                        retrieval_strategy="agentic_explore",
-                        retrieval_score=0.85,
+                        entity_ids=[str(eid)] if eid else [],
+                        retrieval_strategy="agentic_cypher",
+                        retrieval_score=1.0 - (i * 0.02),
                     ),
                 ))
-
-        elif tool_name == "lookup_ontology":
-            # Ontology info as a low-priority context
-            if not result_str.startswith("No ontology"):
+            except json.JSONDecodeError:
                 contexts.append(RetrievedContext(
-                    source=RetrievalSource.ONTOLOGY,
-                    text=result_str,
-                    score=0.3,
+                    source=RetrievalSource.GRAPH,
+                    text=line[:300],
+                    score=0.5,
                     provenance=Provenance(
-                        retrieval_strategy="agentic_ontology",
-                        retrieval_score=0.3,
+                        retrieval_strategy="agentic_cypher",
+                        retrieval_score=0.5,
                     ),
                 ))
+        return contexts, entities, [], []
 
-        return contexts, entities, relations
+    def _parse_explore_result(
+        self,
+        tool_args: dict[str, Any],
+        result_str: str,
+    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation], list[dict[str, Any]]]:
+        """Parse explore_entity JSON results into proper entities and relations."""
+        contexts: list[RetrievedContext] = []
+        entities: list[KGEntity] = []
+        relations: list[KGRelation] = []
+        entity_id = tool_args.get("entity_id", "")
+
+        try:
+            data = json.loads(result_str)
+        except json.JSONDecodeError:
+            # Fallback for non-JSON results
+            if "error" not in result_str.lower():
+                contexts.append(RetrievedContext(
+                    source=RetrievalSource.GRAPH,
+                    text=result_str[:500],
+                    score=0.6,
+                    provenance=Provenance(
+                        entity_ids=[entity_id] if entity_id else [],
+                        retrieval_strategy="agentic_explore",
+                        retrieval_score=0.6,
+                    ),
+                ))
+            return contexts, entities, relations, []
+
+        if "error" in data:
+            return contexts, entities, relations, []
+
+        # Parse entities from structured JSON
+        for ent_dict in data.get("entities", []):
+            eid = ent_dict.get("id", "")
+            if eid:
+                entities.append(KGEntity(
+                    id=eid,
+                    label=ent_dict.get("label", ""),
+                    entity_type=ent_dict.get("type", ""),
+                    confidence=0.9,
+                ))
+
+        # Parse relations from structured JSON
+        for rel_dict in data.get("relations", []):
+            src = rel_dict.get("src", "")
+            tgt = rel_dict.get("tgt", "")
+            rtype = rel_dict.get("type", "")
+            if src and tgt and rtype:
+                relations.append(KGRelation(
+                    source_id=src,
+                    target_id=tgt,
+                    relation_type=rtype,
+                    confidence=0.9,
+                ))
+
+        # Build a readable text for the context
+        text_lines = [f"Neighborhood of '{entity_id}' ({data.get('hops', 1)}-hop):"]
+        text_lines.append(f"Entities ({len(entities)}):")
+        for e in entities[:15]:
+            text_lines.append(f"  [{e.entity_type}] {e.id}: {e.label}")
+        text_lines.append(f"Relations ({len(relations)}):")
+        for r in relations[:20]:
+            text_lines.append(f"  {r.source_id} -[{r.relation_type}]-> {r.target_id}")
+
+        contexts.append(RetrievedContext(
+            source=RetrievalSource.GRAPH,
+            text="\n".join(text_lines),
+            score=0.85,
+            subgraph=[*entities[:30], *relations[:50]],
+            provenance=Provenance(
+                entity_ids=[entity_id] + [e.id for e in entities[:10]],
+                retrieval_strategy="agentic_explore",
+                retrieval_score=0.85,
+            ),
+        ))
+
+        return contexts, entities, relations, []
+
+    def _parse_path_result(
+        self, result_str: str,
+    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation], list[dict[str, Any]]]:
+        """Parse find_connections JSON results into fact chains with provenance.
+
+        Each path becomes a verified fact chain: a sequence of
+        entity-[relation]->entity triples that are directly grounded
+        in the knowledge graph.
+        """
+        contexts: list[RetrievedContext] = []
+        entities: list[KGEntity] = []
+        relations: list[KGRelation] = []
+        chains: list[dict[str, Any]] = []
+
+        try:
+            data = json.loads(result_str)
+        except json.JSONDecodeError:
+            return contexts, entities, relations, chains
+
+        if "error" in data:
+            return contexts, entities, relations, chains
+
+        source = data.get("source", "")
+        target = data.get("target", "")
+        paths = data.get("paths", [])
+
+        if not paths:
+            return contexts, entities, relations, chains
+
+        for path_idx, path in enumerate(paths):
+            node_ids = path.get("nodes", [])
+            node_labels = path.get("node_labels", {})
+            edges = path.get("edges", [])
+            chain_str = path.get("chain", "")
+
+            # Collect entities from this path
+            for nid in node_ids:
+                lbl = node_labels.get(nid, nid)
+                entities.append(KGEntity(
+                    id=nid, label=lbl, entity_type="",
+                    confidence=0.95,
+                ))
+
+            # Collect relations from this path
+            for edge in edges:
+                src = edge.get("src", "")
+                tgt = edge.get("tgt", "")
+                rtype = edge.get("type", "")
+                if src and tgt and rtype:
+                    relations.append(KGRelation(
+                        source_id=src,
+                        target_id=tgt,
+                        relation_type=rtype,
+                        confidence=0.95,
+                    ))
+
+            # Build the fact chain
+            chain = {
+                "source": source,
+                "target": target,
+                "path_index": path_idx,
+                "node_ids": node_ids,
+                "node_labels": node_labels,
+                "edges": edges,
+                "chain_text": chain_str,
+            }
+            chains.append(chain)
+
+            # Create a high-priority context for this fact chain
+            chain_text = f"FACT CHAIN ({source} -> {target}, path {path_idx + 1}):\n"
+            chain_text += f"  {chain_str}\n"
+            chain_text += f"  Nodes: {', '.join(f'{nid} ({node_labels.get(nid, nid)})' for nid in node_ids)}\n"
+            for edge in edges:
+                chain_text += f"  TRIPLE: [{edge.get('src')}] -[{edge.get('type')}]-> [{edge.get('tgt')}]\n"
+
+            contexts.append(RetrievedContext(
+                source=RetrievalSource.GRAPH,
+                text=chain_text,
+                score=0.95 - (path_idx * 0.02),
+                subgraph=[*entities, *relations],
+                provenance=Provenance(
+                    entity_ids=node_ids,
+                    retrieval_strategy="agentic_fact_chain",
+                    retrieval_score=0.95,
+                ),
+            ))
+
+        return contexts, entities, relations, chains
+
+    def _parse_ontology_result(
+        self, result_str: str,
+    ) -> tuple[list[RetrievedContext], list[KGEntity], list[KGRelation], list[dict[str, Any]]]:
+        """Parse ontology lookup results."""
+        contexts: list[RetrievedContext] = []
+        if not result_str.startswith("No ontology"):
+            contexts.append(RetrievedContext(
+                source=RetrievalSource.ONTOLOGY,
+                text=result_str,
+                score=0.3,
+                provenance=Provenance(
+                    retrieval_strategy="agentic_ontology",
+                    retrieval_score=0.3,
+                ),
+            ))
+        return contexts, [], [], []
 
     def _finalize(
         self,
         contexts: list[RetrievedContext],
         entities: list[KGEntity],
         relations: list[KGRelation],
+        fact_chains: list[dict[str, Any]] | None = None,
     ) -> list[RetrievedContext]:
-        """Deduplicate, sort, and attach subgraph to all contexts."""
+        """Deduplicate, sort, and attach subgraph + fact chains to contexts."""
+        fact_chains = fact_chains or []
+
+        # Inject a graph reasoning summary context if we have fact chains
+        if fact_chains:
+            summary_lines = ["GRAPH REASONING — Verified fact chains from knowledge graph:"]
+            for i, chain in enumerate(fact_chains, 1):
+                summary_lines.append(f"\n  Chain {i}: {chain.get('source', '?')} -> {chain.get('target', '?')}")
+                summary_lines.append(f"    Path: {chain.get('chain_text', 'n/a')}")
+                for edge in chain.get("edges", []):
+                    summary_lines.append(
+                        f"    GROUNDED TRIPLE: [{edge.get('src')}] "
+                        f"-[{edge.get('type')}]-> [{edge.get('tgt')}]"
+                    )
+                node_labels = chain.get("node_labels", {})
+                if node_labels:
+                    label_parts = [f"{k}={v}" for k, v in node_labels.items()]
+                    summary_lines.append(f"    Labels: {', '.join(label_parts)}")
+
+            all_chain_ids = []
+            for c in fact_chains:
+                all_chain_ids.extend(c.get("node_ids", []))
+
+            contexts.append(RetrievedContext(
+                source=RetrievalSource.GRAPH,
+                text="\n".join(summary_lines),
+                score=0.98,
+                provenance=Provenance(
+                    entity_ids=list(set(all_chain_ids)),
+                    retrieval_strategy="agentic_graph_reasoning",
+                    retrieval_score=0.98,
+                ),
+            ))
+
         # Deduplicate by text prefix
         seen: set[str] = set()
         unique: list[RetrievedContext] = []
@@ -504,20 +803,20 @@ class AgenticGraphRAG:
                 seen.add(key)
                 unique.append(ctx)
 
-        # Sort by score
+        # Sort by score descending
         unique.sort(key=lambda c: c.score, reverse=True)
 
-        # Attach full subgraph to top context
-        if unique and (entities or relations):
-            # Deduplicate entities
-            seen_ids: set[str] = set()
-            unique_ents: list[KGEntity] = []
-            for e in entities:
-                if e.id not in seen_ids:
-                    seen_ids.add(e.id)
-                    unique_ents.append(e)
+        # Deduplicate entities
+        seen_ids: set[str] = set()
+        unique_ents: list[KGEntity] = []
+        for e in entities:
+            if e.id and e.id not in seen_ids:
+                seen_ids.add(e.id)
+                unique_ents.append(e)
 
-            unique[0].subgraph = [*unique_ents[:30], *relations[:50]]
+        # Attach full subgraph to top context
+        if unique and (unique_ents or relations):
+            unique[0].subgraph = [*unique_ents[:50], *relations[:80]]
 
         # Mark all as hybrid source
         for ctx in unique:
@@ -526,8 +825,9 @@ class AgenticGraphRAG:
         logger.info(
             "agentic.finalized",
             total_contexts=len(unique),
-            entities=len(entities),
+            entities=len(unique_ents),
             relations=len(relations),
+            fact_chains=len(fact_chains),
         )
         return unique[:_MAX_CONTEXTS]
 
