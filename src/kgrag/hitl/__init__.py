@@ -47,3 +47,24 @@ Alternative approaches considered:
 - Git-for-graphs (e.g. TerminusDB) — better for full-graph versioning but
   adds infra complexity.
 """
+
+from kgrag.hitl.change_proposals import ChangeProposal, ChangeProposalService, ProposalType  # noqa: F401
+from kgrag.hitl.gap_detection import DetectedGap, GapDetector  # noqa: F401
+from kgrag.hitl.kg_versioning import ChangeEvent  # noqa: F401
+from kgrag.hitl.ontology_gap_analyzer import (  # noqa: F401
+    GapCandidate,
+    GapReport,
+    OntologyGapAnalyzer,
+)
+
+__all__ = [
+    "ChangeEvent",
+    "ChangeProposal",
+    "ChangeProposalService",
+    "DetectedGap",
+    "GapCandidate",
+    "GapDetector",
+    "GapReport",
+    "OntologyGapAnalyzer",
+    "ProposalType",
+]

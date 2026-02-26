@@ -1,0 +1,502 @@
+[
+  {
+    "question_id": "q01",
+    "question": "Welche gesetzliche Grundlage regelt die Stilllegung von Kernkraftwerken in Deutschland?",
+    "expected_answer": "Das Atomgesetz (AtG), insbesondere §7 Abs. 3 AtG, regelt die Stilllegung und den Abbau von Kernkraftwerken in Deutschland.",
+    "expected_entities": ["Atomgesetz", "AtG", "§7"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q02",
+    "question": "Was ist der Unterschied zwischen Stilllegung und Rückbau einer Kernanlage?",
+    "expected_answer": "Die Stilllegung bezeichnet das endgültige Abschalten des Reaktors, während der Rückbau den physischen Abbau der Anlage und die Entsorgung radioaktiver Materialien umfasst.",
+    "expected_entities": ["Stilllegung", "Rückbau"],
+    "difficulty": "easy",
+    "question_type": "comparative",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q03",
+    "question": "Welche Genehmigungen sind für den Rückbau eines Kernkraftwerks erforderlich?",
+    "expected_answer": "Es sind eine Stilllegungsgenehmigung nach §7 Abs. 3 AtG und ggf. weitere Genehmigungen nach dem Strahlenschutzgesetz (StrlSchG) und der Strahlenschutzverordnung (StrlSchV) erforderlich.",
+    "expected_entities": ["Stilllegungsgenehmigung", "AtG", "StrlSchG", "StrlSchV"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q04",
+    "question": "Was regelt das Strahlenschutzgesetz (StrlSchG) im Kontext des Rückbaus?",
+    "expected_answer": "Das StrlSchG regelt den Schutz von Mensch und Umwelt vor ionisierender Strahlung, einschließlich Grenzwerte, Freigabeverfahren und Überwachungspflichten beim Rückbau.",
+    "expected_entities": ["StrlSchG", "Strahlenschutzgesetz", "Freigabe"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q05",
+    "question": "Welche Rückbaustrategien gibt es für Kernkraftwerke?",
+    "expected_answer": "Die drei Hauptstrategien sind sofortiger Rückbau (DECON), sicherer Einschluss mit späterem Rückbau (SAFSTOR) und Entombment (ENTOMB). In Deutschland wird überwiegend der sofortige Rückbau bevorzugt.",
+    "expected_entities": ["DECON", "SAFSTOR", "sofortiger Rückbau", "sicherer Einschluss"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "strategies"
+  },
+  {
+    "question_id": "q06",
+    "question": "Wer ist die zuständige Aufsichtsbehörde für den Rückbau von Kernkraftwerken?",
+    "expected_answer": "Die zuständigen Landesbehörden (Umweltministerien der Bundesländer) sind als atomrechtliche Genehmigungs- und Aufsichtsbehörden zuständig, mit Bundesaufsicht durch das BMUV.",
+    "expected_entities": ["Landesbehörde", "BMUV", "Aufsichtsbehörde"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "organisations"
+  },
+  {
+    "question_id": "q07",
+    "question": "Welche Rolle spielt die Strahlenschutzverordnung (StrlSchV) beim Rückbau?",
+    "expected_answer": "Die StrlSchV konkretisiert die Anforderungen des StrlSchG und regelt u.a. Dosisgrenzwerte, Freigabewerte für Materialien, Strahlenschutzbereiche und Überwachungsmaßnahmen.",
+    "expected_entities": ["StrlSchV", "Strahlenschutzverordnung", "Dosisgrenzwerte", "Freigabewerte"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q08",
+    "question": "Was ist die Freigabe im Kontext des Rückbaus von Kernkraftwerken?",
+    "expected_answer": "Die Freigabe ist ein Verfahren, bei dem radioaktive Stoffe oder Materialien aus dem Geltungsbereich des Strahlenschutzrechts entlassen werden, wenn ihre Aktivität unterhalb festgelegter Freigabewerte liegt.",
+    "expected_entities": ["Freigabe", "Freigabewerte", "radioaktive Stoffe"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q09",
+    "question": "Welche Arten der Freigabe gibt es beim Rückbau?",
+    "expected_answer": "Es gibt die uneingeschränkte Freigabe (zur Wiederverwertung), die eingeschränkte Freigabe (z.B. zur Deponierung) und die Freigabe zur Beseitigung.",
+    "expected_entities": ["uneingeschränkte Freigabe", "eingeschränkte Freigabe", "Freigabe zur Beseitigung"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q10",
+    "question": "Was ist ein Stilllegungsplan und was muss er enthalten?",
+    "expected_answer": "Ein Stilllegungsplan beschreibt die geplanten Rückbaumaßnahmen, den Zeitplan, die Strahlenschutzmaßnahmen, das Abfallmanagement und die vorgesehene Endnutzung des Standorts.",
+    "expected_entities": ["Stilllegungsplan", "Rückbaumaßnahmen", "Strahlenschutz"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q11",
+    "question": "Welche radioaktiven Abfallkategorien entstehen beim Rückbau?",
+    "expected_answer": "Beim Rückbau entstehen hochradioaktive Abfälle (HAW), mittelradioaktive Abfälle (MAW) und schwachradioaktive Abfälle (LAW). Der größte Anteil ist schwachradioaktiv.",
+    "expected_entities": ["HAW", "MAW", "LAW", "radioaktive Abfälle"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "waste_management"
+  },
+  {
+    "question_id": "q12",
+    "question": "Wo sollen die hochradioaktiven Abfälle aus dem Rückbau endgelagert werden?",
+    "expected_answer": "Für die Endlagerung hochradioaktiver Abfälle wird in Deutschland ein geologisches Tiefenlager gesucht. Das Standortauswahlgesetz (StandAG) regelt das Verfahren.",
+    "expected_entities": ["Endlager", "StandAG", "Tiefenlager", "Standortauswahlgesetz"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "waste_management"
+  },
+  {
+    "question_id": "q13",
+    "question": "Was ist das Standortauswahlgesetz (StandAG)?",
+    "expected_answer": "Das StandAG regelt das Verfahren zur Suche und Auswahl eines Standorts für ein Endlager für hochradioaktive Abfälle in Deutschland. Es sieht ein partizipatives, wissenschaftsbasiertes Verfahren vor.",
+    "expected_entities": ["StandAG", "Standortauswahlgesetz", "Endlager"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q14",
+    "question": "Welche Organisationen sind am Rückbau von Kernkraftwerken in Deutschland beteiligt?",
+    "expected_answer": "Beteiligt sind die Betreiber (z.B. PreussenElektra, EnBW, RWE), die BGZ (Gesellschaft für Zwischenlagerung), die BGE (Bundesgesellschaft für Endlagerung), Aufsichtsbehörden und verschiedene Dienstleister.",
+    "expected_entities": ["PreussenElektra", "EnBW", "RWE", "BGZ", "BGE"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "organisations"
+  },
+  {
+    "question_id": "q15",
+    "question": "Was ist die Aufgabe der BGZ?",
+    "expected_answer": "Die BGZ (Gesellschaft für Zwischenlagerung) ist für die Zwischenlagerung radioaktiver Abfälle zuständig, einschließlich Betrieb und Wartung der Zwischenlager an den Kraftwerksstandorten.",
+    "expected_entities": ["BGZ", "Zwischenlagerung", "Zwischenlager"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "organisations"
+  },
+  {
+    "question_id": "q16",
+    "question": "Welche Phasen umfasst der Rückbau eines Kernkraftwerks?",
+    "expected_answer": "Der Rückbau umfasst typischerweise: Nachbetriebsphase, Rückbau der kontaminierten Bereiche, Rückbau des Kontrollbereichs, Rückbau konventioneller Gebäudeteile und abschließende Freimessung des Standorts.",
+    "expected_entities": ["Nachbetriebsphase", "Kontrollbereich", "Freimessung"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q17",
+    "question": "Wie lange dauert der Rückbau eines Kernkraftwerks in Deutschland typischerweise?",
+    "expected_answer": "Der Rückbau dauert typischerweise 10 bis 15 Jahre vom Beginn der Stilllegung bis zur Entlassung aus dem Atomrecht, kann aber auch länger dauern.",
+    "expected_entities": ["Rückbaudauer"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q18",
+    "question": "Was sind Rückstellungen für den Rückbau und wer trägt die Kosten?",
+    "expected_answer": "Die Betreiber müssen finanzielle Rückstellungen für den Rückbau bilden. Seit der Neuordnung 2017 tragen die Betreiber die Kosten für Stilllegung und Rückbau, während der Bund über den Fonds für die Entsorgung zuständig ist.",
+    "expected_entities": ["Rückstellungen", "Entsorgungsfonds"],
+    "difficulty": "hard",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "finance"
+  },
+  {
+    "question_id": "q19",
+    "question": "Was regelt die Entsorgungsübergangsverordnung?",
+    "expected_answer": "Die Entsorgungsübergangsverordnung regelt den Übergang der Verantwortung für die Zwischen- und Endlagerung radioaktiver Abfälle von den Betreibern auf den Bund.",
+    "expected_entities": ["Entsorgungsübergangsverordnung"],
+    "difficulty": "hard",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q20",
+    "question": "Welche Kernkraftwerke befinden sich aktuell im Rückbau in Deutschland?",
+    "expected_answer": "Mehrere Kernkraftwerke befinden sich im Rückbau, darunter Biblis A und B, Grafenrheinfeld, Grohnde, Brokdorf, Gundremmingen B und C sowie die letzten drei abgeschalteten: Isar 2, Emsland und Neckarwestheim 2.",
+    "expected_entities": ["Biblis", "Grafenrheinfeld", "Grohnde", "Brokdorf", "Isar 2", "Emsland", "Neckarwestheim"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "facilities"
+  },
+  {
+    "question_id": "q21",
+    "question": "Welche Dekontaminationsverfahren werden beim Rückbau eingesetzt?",
+    "expected_answer": "Eingesetzt werden chemische Dekontamination, Hochdruckwasserstrahlreinigung, Abrasivstrahlverfahren, Ultraschallreinigung und elektrochemische Verfahren.",
+    "expected_entities": ["Dekontamination", "Hochdruckwasserstrahlreinigung", "chemische Dekontamination"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "techniques"
+  },
+  {
+    "question_id": "q22",
+    "question": "Was ist Fernhantierung und warum wird sie beim Rückbau eingesetzt?",
+    "expected_answer": "Fernhantierung bezeichnet den Einsatz von ferngesteuerten Werkzeugen und Robotern für Arbeiten in hochradioaktiven Bereichen, um die Strahlenexposition der Arbeiter zu minimieren.",
+    "expected_entities": ["Fernhantierung", "Roboter", "Strahlenexposition"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "techniques"
+  },
+  {
+    "question_id": "q23",
+    "question": "Was ist das ALARA-Prinzip und wie wird es beim Rückbau angewandt?",
+    "expected_answer": "ALARA steht für 'As Low As Reasonably Achievable'. Beim Rückbau bedeutet es, dass die Strahlenexposition so niedrig wie vernünftigerweise erreichbar gehalten werden muss.",
+    "expected_entities": ["ALARA", "Strahlenexposition", "Strahlenschutz"],
+    "difficulty": "easy",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q24",
+    "question": "Welche Rolle spielt die Umweltverträglichkeitsprüfung (UVP) beim Rückbau?",
+    "expected_answer": "Eine UVP ist für die Stilllegung und den Rückbau von Kernkraftwerken gesetzlich vorgeschrieben und prüft die Auswirkungen auf Mensch und Umwelt vor Erteilung der Genehmigung.",
+    "expected_entities": ["UVP", "Umweltverträglichkeitsprüfung"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q25",
+    "question": "Was ist der Unterschied zwischen Kontrollbereich und Überwachungsbereich?",
+    "expected_answer": "Der Kontrollbereich ist der Bereich, in dem Personen eine effektive Dosis von mehr als 6 mSv pro Jahr erhalten können. Der Überwachungsbereich liegt darunter (1-6 mSv/a). Im Kontrollbereich gelten strengere Strahlenschutzauflagen.",
+    "expected_entities": ["Kontrollbereich", "Überwachungsbereich", "effektive Dosis"],
+    "difficulty": "medium",
+    "question_type": "comparative",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q26",
+    "question": "Wie werden beim Rückbau anfallende Metalle recycelt?",
+    "expected_answer": "Metallische Reststoffe werden dekontaminiert, freigemessen und nach erfolgreicher Freigabe dem konventionellen Recyclingkreislauf zugeführt. Dies betrifft vor allem Stahl und Kupfer.",
+    "expected_entities": ["Recycling", "Freimessung", "Freigabe", "Metalle"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "waste_management"
+  },
+  {
+    "question_id": "q27",
+    "question": "Was ist das Konrad-Endlager und für welche Abfälle ist es vorgesehen?",
+    "expected_answer": "Schacht Konrad ist ein genehmigtes Endlager für schwach- und mittelradioaktive Abfälle in Salzgitter. Es wird voraussichtlich das erste betriebsbereite Endlager in Deutschland.",
+    "expected_entities": ["Schacht Konrad", "Endlager", "schwachradioaktive Abfälle", "Salzgitter"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "waste_management"
+  },
+  {
+    "question_id": "q28",
+    "question": "Welche Bürgerbeteiligungsverfahren gibt es beim Rückbau?",
+    "expected_answer": "Es gibt öffentliche Erörterungstermine im Rahmen der UVP, Informationsveranstaltungen der Betreiber, Standortbeiräte und Informationszentren an den Kraftwerksstandorten.",
+    "expected_entities": ["Bürgerbeteiligung", "Erörterungstermin", "UVP"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "public_participation"
+  },
+  {
+    "question_id": "q29",
+    "question": "Was passiert mit den Brennelementen beim Rückbau?",
+    "expected_answer": "Die abgebrannten Brennelemente werden zunächst im Nasslager (Brennelementbecken) des Kraftwerks gekühlt und anschließend in Castor-Behältern in standortnahe oder zentrale Zwischenlager überführt.",
+    "expected_entities": ["Brennelemente", "Castor", "Zwischenlager", "Brennelementbecken"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "waste_management"
+  },
+  {
+    "question_id": "q30",
+    "question": "Welche internationalen Abkommen betreffen den Rückbau von Kernkraftwerken?",
+    "expected_answer": "Relevante internationale Abkommen sind das Gemeinsame Übereinkommen über die Sicherheit der Behandlung abgebrannter Brennelemente und radioaktiver Abfälle, die IAEA Safety Standards und EURATOM-Richtlinien.",
+    "expected_entities": ["IAEA", "EURATOM", "Gemeinsames Übereinkommen"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q31",
+    "question": "Was ist eine Reststoffbearbeitungseinrichtung?",
+    "expected_answer": "Eine Reststoffbearbeitungseinrichtung dient der Behandlung, Sortierung und Konditionierung radioaktiver Reststoffe aus dem Rückbau, um sie für die Zwischen- oder Endlagerung bzw. Freigabe vorzubereiten.",
+    "expected_entities": ["Reststoffbearbeitungseinrichtung", "Konditionierung"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "facilities"
+  },
+  {
+    "question_id": "q32",
+    "question": "Wie wird der Reaktordruckbehälter beim Rückbau zerlegt?",
+    "expected_answer": "Der Reaktordruckbehälter wird unter Wasser (nass) oder trocken mittels thermischer oder mechanischer Schneidverfahren zerlegt. Die Unterwasser-Zerlegung reduziert die Strahlenbelastung.",
+    "expected_entities": ["Reaktordruckbehälter", "Unterwasser-Zerlegung", "thermische Schneidverfahren"],
+    "difficulty": "hard",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "techniques"
+  },
+  {
+    "question_id": "q33",
+    "question": "Was ist Aktivierung und wie entsteht sie in Reaktorkomponenten?",
+    "expected_answer": "Aktivierung entsteht durch Neutronenbestrahlung von Materialien in der Nähe des Reaktorkerns. Die Neutronen werden von Atomkernen eingefangen, wodurch radioaktive Isotope entstehen.",
+    "expected_entities": ["Aktivierung", "Neutronenbestrahlung", "radioaktive Isotope"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q34",
+    "question": "Was unterscheidet Aktivierung von Kontamination?",
+    "expected_answer": "Aktivierung ist eine strukturelle Veränderung des Materials durch Neutroneneinfang und kann nicht durch Reinigung entfernt werden. Kontamination ist eine oberflächliche Verunreinigung mit radioaktiven Stoffen und kann durch Dekontamination beseitigt werden.",
+    "expected_entities": ["Aktivierung", "Kontamination", "Dekontamination"],
+    "difficulty": "medium",
+    "question_type": "comparative",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q35",
+    "question": "Welche Strahlenschutzmaßnahmen gelten für Arbeiter beim Rückbau?",
+    "expected_answer": "Maßnahmen umfassen persönliche Dosimetrie, Schutzkleidung, Atemschutz, Abschirmung, Einhaltung von Aufenthaltszeitbeschränkungen und das ALARA-Prinzip. Die Jahresgrenzwerte liegen bei 20 mSv effektiver Dosis.",
+    "expected_entities": ["Dosimetrie", "Schutzkleidung", "ALARA", "Jahresgrenzwert"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "safety"
+  },
+  {
+    "question_id": "q36",
+    "question": "Was ist die Eigenüberwachung beim Rückbau?",
+    "expected_answer": "Die Eigenüberwachung umfasst das betreibereigene Strahlenschutz-Messprogramm zur Überwachung der Emissionen, Immissionen und der Umgebungsstrahlung rund um die Kernanlage.",
+    "expected_entities": ["Eigenüberwachung", "Messprogramm", "Emissionen"],
+    "difficulty": "hard",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "safety"
+  },
+  {
+    "question_id": "q37",
+    "question": "Was passiert nach dem vollständigen Rückbau mit dem Kraftwerksgelände?",
+    "expected_answer": "Nach der abschließenden Freimessung und Entlassung aus dem Atomrecht kann das Gelände einer neuen Nutzung zugeführt werden, z.B. als Gewerbe- oder Industriegebiet, teilweise auch für erneuerbare Energien.",
+    "expected_entities": ["Freimessung", "Entlassung aus dem Atomrecht", "Nachnutzung"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q38",
+    "question": "Was sind die Herausforderungen bei der Konditionierung radioaktiver Abfälle?",
+    "expected_answer": "Herausforderungen sind die korrekte Charakterisierung, die Annahmekriterien für Endlager, die langfristige Stabilität der Abfallgebinde, die Qualitätssicherung und die begrenzte Kapazität der Konditionierungsanlagen.",
+    "expected_entities": ["Konditionierung", "Abfallgebinde", "Annahmekriterien"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "waste_management"
+  },
+  {
+    "question_id": "q39",
+    "question": "Welche Dokumentationspflichten bestehen beim Rückbau?",
+    "expected_answer": "Es müssen ein Abbautagebuch geführt, Strahlenschutzmessungen dokumentiert, Abfallnachweise erstellt und regelmäßige Berichte an die Aufsichtsbehörde übermittelt werden.",
+    "expected_entities": ["Dokumentationspflichten", "Abbautagebuch", "Abfallnachweise"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q40",
+    "question": "Wie funktioniert die Freimessung eines Gebäudes oder Geländes?",
+    "expected_answer": "Bei der Freimessung werden systematische Messungen der Oberflächenkontamination und Dosisleistung durchgeführt. Das Gebäude oder Gelände wird in Messraster eingeteilt und rasterförmig vermessen.",
+    "expected_entities": ["Freimessung", "Oberflächenkontamination", "Dosisleistung"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "techniques"
+  },
+  {
+    "question_id": "q41",
+    "question": "Was ist die Aufgabe der Reaktor-Sicherheitskommission (RSK)?",
+    "expected_answer": "Die RSK berät das Bundesumweltministerium in Fragen der kerntechnischen Sicherheit, einschließlich der Bewertung von Stilllegungs- und Rückbauanträgen.",
+    "expected_entities": ["RSK", "Reaktor-Sicherheitskommission", "BMUV"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "organisations"
+  },
+  {
+    "question_id": "q42",
+    "question": "Was sind Planungsbereiche beim Rückbau?",
+    "expected_answer": "Planungsbereiche (PlanningDomains) sind logische Einheiten, die den Rückbau in handhabbare Abschnitte unterteilen. Jedem Planungsbereich werden spezifische Maßnahmen, Zeitpläne und Ressourcen zugeordnet.",
+    "expected_entities": ["PlanningDomain", "Planungsbereich", "Maßnahmen"],
+    "difficulty": "medium",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q43",
+    "question": "Welche Aktionen werden in einem Planungsbereich durchgeführt?",
+    "expected_answer": "In einem Planungsbereich werden Aktionen wie Dekontamination, Demontage, Zerlegen, Verpacken, Freimessung und Transport radioaktiver Abfälle durchgeführt.",
+    "expected_entities": ["Action", "Dekontamination", "Demontage", "Freimessung"],
+    "difficulty": "medium",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q44",
+    "question": "Welche Auswirkungen haben Aktionen beim Rückbau (ActionEffects)?",
+    "expected_answer": "Aktionen haben Auswirkungen wie Dosisbelastung der Arbeiter, Abfallerzeugung, Veränderung des radiologischen Inventars und Kosten. Diese werden als ActionEffects modelliert.",
+    "expected_entities": ["ActionEffect", "Dosisbelastung", "Abfallerzeugung"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "planning"
+  },
+  {
+    "question_id": "q45",
+    "question": "Welche gesetzlichen Regelungen gibt es für den Transport radioaktiver Abfälle?",
+    "expected_answer": "Der Transport ist geregelt durch die Gefahrgutverordnung Straße, Eisenbahn und Binnenschifffahrt (GGVSEB), ADR-Übereinkommen und spezifische atomrechtliche Transportgenehmigungen nach §4 AtG.",
+    "expected_entities": ["GGVSEB", "ADR", "Transportgenehmigung"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q46",
+    "question": "Gibt es einen Zusammenhang zwischen dem AtG und dem StrlSchG?",
+    "expected_answer": "Ja, das AtG ist das übergeordnete Gesetz für Kernenergie und nukleare Sicherheit, während das StrlSchG den Strahlenschutz im Detail regelt. Beide Gesetze ergänzen sich und verweisen aufeinander.",
+    "expected_entities": ["AtG", "StrlSchG", "referenziert"],
+    "difficulty": "medium",
+    "question_type": "boolean",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  },
+  {
+    "question_id": "q47",
+    "question": "Welche Facility-Komponenten sind besonders herausfordernd beim Rückbau?",
+    "expected_answer": "Besonders herausfordernd sind der Reaktordruckbehälter, die biologische Abschirmung, der Dampferzeuger, die Kerneinbauten und die Brennelement-Lagerbecken aufgrund ihrer hohen Aktivierung.",
+    "expected_entities": ["Reaktordruckbehälter", "biologische Abschirmung", "Dampferzeuger", "FacilityComponent"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "facilities"
+  },
+  {
+    "question_id": "q48",
+    "question": "Wie wird die Einhaltung der Genehmigungsauflagen beim Rückbau überwacht?",
+    "expected_answer": "Die Einhaltung wird durch regelmäßige Inspektionen der Aufsichtsbehörde, Berichtspflichten der Betreiber, unabhängige Sachverständigengutachten (z.B. TÜV) und die betriebliche Eigenüberwachung sichergestellt.",
+    "expected_entities": ["Aufsichtsbehörde", "TÜV", "Sachverständige", "Eigenüberwachung"],
+    "difficulty": "hard",
+    "question_type": "list",
+    "competency_question_id": null,
+    "category": "safety"
+  },
+  {
+    "question_id": "q49",
+    "question": "Was ist ein DomainConstant im Kontext der Rückbauplanung?",
+    "expected_answer": "DomainConstants sind feste Größen und Grenzwerte, die in der Rückbauplanung verwendet werden, z.B. Dosisgrenzwerte, Freigabewerte, Halbwertszeiten relevanter Nuklide und Sicherheitsmargen.",
+    "expected_entities": ["DomainConstant", "Dosisgrenzwerte", "Freigabewerte", "Halbwertszeiten"],
+    "difficulty": "hard",
+    "question_type": "factoid",
+    "competency_question_id": null,
+    "category": "concepts"
+  },
+  {
+    "question_id": "q50",
+    "question": "Wie hängen die verschiedenen Gesetze (AtG, StrlSchG, StandAG) beim Rückbau zusammen?",
+    "expected_answer": "Das AtG bildet den Rahmen für die Kernenergienutzung und Stilllegung, das StrlSchG regelt den Strahlenschutz als Querschnittsgesetz, und das StandAG regelt spezifisch die Endlagersuche. Zusammen bilden sie das regulatorische Gesamtsystem für den Rückbau.",
+    "expected_entities": ["AtG", "StrlSchG", "StandAG", "referenziert"],
+    "difficulty": "hard",
+    "question_type": "causal",
+    "competency_question_id": null,
+    "category": "legal_framework"
+  }
+]

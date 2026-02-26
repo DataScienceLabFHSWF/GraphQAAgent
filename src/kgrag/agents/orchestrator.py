@@ -39,6 +39,8 @@ from kgrag.core.config import Settings
 from kgrag.core.domain import DomainConfig
 from kgrag.core.models import QAAnswer, RetrievedContext
 from kgrag.core.protocols import Retriever
+from kgrag.hitl.gap_detection import GapDetector
+from kgrag.hitl.ontology_gap_analyzer import OntologyGapAnalyzer
 from kgrag.retrieval.agentic_rag import AgenticGraphRAG
 from kgrag.retrieval.cypher import CypherRetriever
 from kgrag.retrieval.entity_linker import EntityLinker
@@ -157,6 +159,14 @@ class Orchestrator:
             retriever=self.hybrid_sota_retriever,  # Use the full SOTA retriever for additional retrieval
             max_iterations=settings.retrieval.reasoning.react_max_iterations,
             relevance_threshold=settings.retrieval.reasoning.react_relevance_threshold,
+        )
+
+        # HITL — gap detection (QA-driven + structural)
+        self.gap_detector = GapDetector(confidence_threshold=0.5)
+        self.gap_analyzer = OntologyGapAnalyzer(
+            neo4j=self.neo4j,
+            fuseki=self.fuseki,
+            ollama=self.ollama,
         )
 
     # -- lifecycle ----------------------------------------------------------
@@ -290,6 +300,23 @@ class Orchestrator:
         # Phase 7: Explain (provenance + reasoning DAG + subgraph)
         answer = self.explainer.add_provenance(answer, contexts, query)
 
+        # Phase 8: QA-driven gap detection (async, best-effort)
+        try:
+            gap = await self.gap_detector.analyse_answer(
+                question=raw_question,
+                answer_text=answer.answer_text,
+                confidence=answer.confidence,
+                evidence_count=len(contexts),
+            )
+            if gap:
+                logger.info(
+                    "orchestrator.gap_detected",
+                    gap_type=gap.gap_type,
+                    question=raw_question[:80],
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("orchestrator.gap_detection_failed", error=str(exc))
+
         answer.latency_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             "orchestrator.answered",
@@ -303,6 +330,23 @@ class Orchestrator:
             latency_ms=round(answer.latency_ms, 1),
         )
         return answer
+
+    async def run_gap_analysis(self) -> dict:
+        """Run a full structural gap analysis (ABox vs TBox).
+
+        Returns the ``GapReport`` as a dictionary, combining both
+        structural mismatches and any QA-driven gaps accumulated so far.
+        """
+        # Feed accumulated QA gaps into the analyzer
+        for qa_gap in self.gap_detector.get_gaps():
+            self.gap_analyzer.qa_gap_detector.analyse_answer_sync(
+                question=qa_gap.trigger_question,
+                answer_text="",
+                confidence=qa_gap.confidence,
+            ) if hasattr(self.gap_analyzer.qa_gap_detector, "analyse_answer_sync") else None
+
+        report = await self.gap_analyzer.analyze()
+        return self.gap_analyzer.export_for_ontology_extender(report)
 
     def _get_retriever(self, strategy: str) -> Retriever:
         """Resolve strategy name to retriever instance."""

@@ -222,9 +222,12 @@ class QABenchmarkItem:
     question: str
     expected_answer: str
     expected_entities: list[str] = field(default_factory=list)
-    difficulty: str = "medium"
+    difficulty: str | int = "medium"
     question_type: str = "factoid"
     competency_question_id: str | None = None
+    category: str = ""
+    retrieval_complexity: str = ""  # e.g. single_entity_lookup, multi_hop_path_traversal
+    notes: str = ""
 
 
 @dataclass
@@ -241,6 +244,13 @@ class QAEvalResult:
     latency_ms: float = 0.0
     retrieval_strategy: str = ""
     context_count: int = 0
+    # DeepEval LLM-as-a-judge scores (optional — None when not computed)
+    deepeval_answer_relevancy: float | None = None
+    deepeval_faithfulness: float | None = None
+    deepeval_contextual_relevancy: float | None = None
+    deepeval_contextual_precision: float | None = None
+    deepeval_contextual_recall: float | None = None
+    deepeval_correctness: float | None = None
 
 
 @dataclass
@@ -255,6 +265,10 @@ class StrategyComparison:
     exact_match_rate: float = 0.0
     num_questions: int = 0
     per_type_f1: dict[str, float] = field(default_factory=dict)
+    # DeepEval aggregated scores
+    avg_deepeval_answer_relevancy: float | None = None
+    avg_deepeval_faithfulness: float | None = None
+    avg_deepeval_correctness: float | None = None
 
 
 # ---------------------------------------------------------------------------

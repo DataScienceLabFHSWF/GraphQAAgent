@@ -51,6 +51,9 @@ class QADataset:
                 difficulty=item.get("difficulty", "medium"),
                 question_type=item.get("question_type", "factoid"),
                 competency_question_id=item.get("competency_question_id"),
+                category=item.get("category", ""),
+                retrieval_complexity=item.get("retrieval_complexity", ""),
+                notes=item.get("notes", ""),
             )
             for item in data
         ]
