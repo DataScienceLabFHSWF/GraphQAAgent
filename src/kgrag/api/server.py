@@ -8,6 +8,7 @@ Registers all routers:
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -23,6 +24,25 @@ from kgrag.chat.session import ChatSessionManager
 from kgrag.core.config import Settings
 
 logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# CORS — configurable via the KGRAG_CORS_ORIGINS env var.
+# Comma-separated list.  Falls back to sensible defaults for local dev.
+# Set to "*" to allow all origins (NOT recommended for production).
+# ---------------------------------------------------------------------------
+_DEFAULT_CORS_ORIGINS = [
+    "http://localhost:8501",   # Streamlit
+    "http://localhost:3000",   # Next.js / gaia-tt dev server
+    "http://localhost:5173",   # Vite dev server
+]
+
+
+def _cors_origins() -> list[str]:
+    """Return allowed CORS origins from env or defaults."""
+    raw = os.environ.get("KGRAG_CORS_ORIGINS", "")
+    if not raw:
+        return _DEFAULT_CORS_ORIGINS
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 @asynccontextmanager
@@ -59,16 +79,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — allow Streamlit (default :8501) and local dev frontends
+    # CORS — configurable via KGRAG_CORS_ORIGINS env var
+    origins = _cors_origins()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:8501",  # Streamlit
-            "http://localhost:3000",  # Next.js (if TypeScript frontend is used)
-        ],
+        allow_origins=origins,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    logger.info("cors.configured", origins=origins)
 
     # Register routers
     app.include_router(router, prefix="/api/v1")

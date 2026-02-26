@@ -7,6 +7,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -26,8 +27,12 @@ COPY pyproject.toml README.md ./
 # Install the package in development mode
 RUN pip install -e .
 
-# Expose port
-EXPOSE 8080
+# Copy config and data files
+COPY config/ ./config/
+COPY data/ ./data/
+
+# Expose ports (8080 for legacy, 8000 for backend compose)
+EXPOSE 8000 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

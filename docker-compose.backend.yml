@@ -1,0 +1,118 @@
+# docker-compose.backend.yml
+#
+# Production-ready deployment for the KG-RAG FastAPI backend.
+# Connects to existing infrastructure services (Neo4j, Qdrant, Fuseki)
+# running on the host or in other compose stacks.
+#
+# Usage:
+#   docker compose -f docker-compose.backend.yml up -d --build
+#
+# Port map (all verified free on host):
+#   8000  — KG-RAG FastAPI API   (main backend for gaia-tt)
+#   8501  — Streamlit demo UI    (optional, for internal use)
+#
+# Infrastructure assumed running (from docker-compose.yml or host):
+#   7687  — Neo4j Bolt
+#   7474  — Neo4j Browser
+#   6333  — Qdrant
+#   3030  — Fuseki / SPARQL
+#  11434  — Ollama (system) or 18136 (kgrag-ollama from docker-compose.kgrag.yml)
+#
+# Override any setting via the .env file or environment variables.
+
+services:
+  # ---------------------------------------------------------------
+  # KG-RAG FastAPI Backend
+  # ---------------------------------------------------------------
+  kgrag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kgrag-api
+    restart: unless-stopped
+    ports:
+      - "${KGRAG_API_PORT:-8000}:8000"
+    environment:
+      # --- Neo4j (read-only, consumes KGB's graph) ---
+      KGRAG_NEO4J__URI: ${KGRAG_NEO4J__URI:-bolt://host.docker.internal:7687}
+      KGRAG_NEO4J__USER: ${KGRAG_NEO4J__USER:-neo4j}
+      KGRAG_NEO4J__PASSWORD: ${KGRAG_NEO4J__PASSWORD:-password}
+      KGRAG_NEO4J__DATABASE: ${KGRAG_NEO4J__DATABASE:-neo4j}
+
+      # --- Qdrant (read-only, consumes KGB's vectors) ---
+      KGRAG_QDRANT__URL: ${KGRAG_QDRANT__URL:-http://host.docker.internal:6333}
+      KGRAG_QDRANT__COLLECTION_NAME: ${KGRAG_QDRANT__COLLECTION_NAME:-kgbuilder}
+
+      # --- Fuseki / SPARQL (read-only, reads ontology) ---
+      KGRAG_FUSEKI__URL: ${KGRAG_FUSEKI__URL:-http://host.docker.internal:3030}
+      KGRAG_FUSEKI__DATASET: ${KGRAG_FUSEKI__DATASET:-ontology}
+
+      # --- Ollama LLM ---
+      KGRAG_OLLAMA__BASE_URL: ${KGRAG_OLLAMA__BASE_URL:-http://host.docker.internal:11434}
+      KGRAG_OLLAMA__GENERATION_MODEL: ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+      KGRAG_OLLAMA__EMBEDDING_MODEL: ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding:latest}
+      KGRAG_OLLAMA__TEMPERATURE: ${KGRAG_OLLAMA__TEMPERATURE:-0.3}
+      KGRAG_OLLAMA__MAX_TOKENS: ${KGRAG_OLLAMA__MAX_TOKENS:-4096}
+
+      # --- Retrieval ---
+      KGRAG_RETRIEVAL__VECTOR_TOP_K: ${KGRAG_RETRIEVAL__VECTOR_TOP_K:-10}
+      KGRAG_RETRIEVAL__GRAPH_MAX_HOPS: ${KGRAG_RETRIEVAL__GRAPH_MAX_HOPS:-2}
+      KGRAG_RETRIEVAL__GRAPH_MAX_NODES: ${KGRAG_RETRIEVAL__GRAPH_MAX_NODES:-50}
+
+      # --- Reasoning ---
+      KGRAG_RETRIEVAL__REASONING__ENABLE_CHAIN_OF_THOUGHT: "true"
+      KGRAG_RETRIEVAL__REASONING__ENABLE_REACT_REASONING: "false"
+      KGRAG_RETRIEVAL__REASONING__ENABLE_ITERATIVE_EXPLORATION: "true"
+      KGRAG_RETRIEVAL__REASONING__ENABLE_ANSWER_VERIFICATION: "true"
+      KGRAG_RETRIEVAL__REASONING__COT_MAX_STEPS: "5"
+      KGRAG_RETRIEVAL__REASONING__REACT_MAX_ITERATIONS: "3"
+      KGRAG_RETRIEVAL__REASONING__REACT_RELEVANCE_THRESHOLD: "0.3"
+      KGRAG_RETRIEVAL__REASONING__VERIFICATION_CLAIM_THRESHOLD: "0.5"
+
+      # --- CORS (comma-separated origins for the gaia-tt frontend) ---
+      KGRAG_CORS_ORIGINS: ${KGRAG_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://localhost:8501}
+
+      # --- Logging ---
+      KGRAG_LOG_LEVEL: ${KGRAG_LOG_LEVEL:-INFO}
+    command: >
+      uvicorn kgrag.api.server:app
+      --host 0.0.0.0
+      --port 8000
+      --workers ${KGRAG_API_WORKERS:-1}
+      --timeout-keep-alive 120
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - kgrag_sessions:/app/data/sessions  # persist chat sessions
+
+  # ---------------------------------------------------------------
+  # Streamlit Demo UI (optional)
+  # ---------------------------------------------------------------
+  kgrag-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kgrag-frontend
+    restart: unless-stopped
+    profiles: ["frontend"]  # only starts with: --profile frontend
+    ports:
+      - "${KGRAG_FRONTEND_PORT:-8501}:8501"
+    environment:
+      API_URL: http://kgrag-api:8000/api/v1
+    command: >
+      streamlit run src/kgrag/frontend/app.py
+      --server.port 8501
+      --server.headless true
+      --server.address 0.0.0.0
+    depends_on:
+      kgrag-api:
+        condition: service_healthy
+
+volumes:
+  kgrag_sessions:

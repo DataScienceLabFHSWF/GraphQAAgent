@@ -19,6 +19,11 @@ class DummyOrchestrator:
             confidence = 0.5
             reasoning_chain = []
             evidence = []
+            cited_entities = []
+            cited_relations = []
+            reasoning_steps = []
+            verification = None
+            _gap_info = None
             subgraph_json = None
             latency_ms = 1
         return A()

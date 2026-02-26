@@ -1,15 +1,25 @@
 """SSE (Server-Sent Events) streaming helpers.
 
 Provides utilities for formatting SSE events and generating streaming
-responses from the QA pipeline.
+responses from the QA pipeline.  Emits enriched events so the gaia-tt
+TypeScript frontend can render reasoning steps, entity cards, evidence
+panels, subgraph visualisations, and verification badges live.
 
-Delegated implementation tasks
-------------------------------
-* TODO: Hook into the LLM's token-level callback (LangChain
-  ``BaseCallbackHandler.on_llm_new_token``) for true token streaming
-  instead of the current word-level simulation.
-* TODO: Add heartbeat events to keep the connection alive on slow queries.
-* TODO: Add backpressure handling for slow clients.
+SSE event sequence
+------------------
+1. ``session``          — session id
+2. ``reasoning_step``   — 0-N structured reasoning steps
+3. ``token``            — 1-N answer tokens (word-level until LLM callbacks)
+4. ``evidence``         — retrieved evidence texts with provenance
+5. ``entities``         — cited KG entities
+6. ``relations``        — cited KG relations
+7. ``provenance``       — evidence source metadata
+8. ``subgraph``         — vis.js / Cytoscape-compatible graph JSON
+9. ``verification``     — faithfulness check result
+10. ``gap_alert``       — HITL gap detection (if triggered)
+11. ``done``            — final metadata (confidence, latency, strategy)
+
+On error an ``error`` event is emitted instead.
 """
 
 from __future__ import annotations
@@ -31,8 +41,7 @@ def sse_event(event: str, data: object) -> str:
     Parameters
     ----------
     event:
-        Event type (``token``, ``reasoning_step``, ``provenance``,
-        ``subgraph``, ``done``, ``error``).
+        Event type (see module docstring for the full list).
     data:
         JSON-serialisable payload.
     """
@@ -46,15 +55,8 @@ async def stream_chat_response(
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events for a streaming chat response.
 
-    Event sequence:
-    1. ``session`` — session ID for the client to track
-    2. ``reasoning_step`` (0-N) — each CoT step
-    3. ``token`` (1-N) — answer tokens (currently simulated)
-    4. ``provenance`` — list of evidence sources
-    5. ``subgraph`` — vis.js-formatted graph data
-    6. ``done`` — final metadata (confidence, latency)
-
-    On error an ``error`` event is emitted instead.
+    Runs the full pipeline synchronously, then streams the result in
+    discrete events so the frontend can progressively render each piece.
 
     TODO (delegate):
     * Replace word-level token simulation with real LLM callback streaming.
@@ -67,33 +69,71 @@ async def stream_chat_response(
         # Run full pipeline (non-streaming internally)
         result = await session_manager.process_message(session_id, request)
 
-        # 2. Reasoning steps
-        if request.include_reasoning and result.reasoning_chain:
-            for i, step in enumerate(result.reasoning_chain):
-                yield sse_event("reasoning_step", {"step": i + 1, "text": step})
+        # 2. Reasoning steps (structured)
+        if request.include_reasoning:
+            # Structured steps (CoT / ReAct)
+            if result.reasoning_steps:
+                for step in result.reasoning_steps:
+                    yield sse_event("reasoning_step", step.model_dump())
+            # Fallback: plain reasoning chain strings
+            elif result.reasoning_chain:
+                for i, text in enumerate(result.reasoning_chain):
+                    yield sse_event("reasoning_step", {"step": i + 1, "text": text})
 
         # 3. Answer tokens (simulated word-level streaming)
         words = result.message.content.split()
         for word in words:
             yield sse_event("token", {"text": word + " "})
 
-        # 4. Provenance
+        # 4. Evidence (full texts with provenance)
+        if request.include_evidence and result.evidence:
+            yield sse_event(
+                "evidence",
+                [e.model_dump() for e in result.evidence],
+            )
+
+        # 5. Cited entities
+        if result.cited_entities:
+            yield sse_event(
+                "entities",
+                [e.model_dump() for e in result.cited_entities],
+            )
+
+        # 6. Cited relations
+        if result.cited_relations:
+            yield sse_event(
+                "relations",
+                [r.model_dump() for r in result.cited_relations],
+            )
+
+        # 7. Provenance (source metadata)
         if result.provenance:
             yield sse_event(
                 "provenance",
                 [p.model_dump() for p in result.provenance],
             )
 
-        # 5. Subgraph
+        # 8. Subgraph (vis.js-compatible JSON)
         if request.include_subgraph and result.subgraph:
             yield sse_event("subgraph", result.subgraph)
 
-        # 6. Done
+        # 9. Verification
+        if result.verification:
+            yield sse_event("verification", result.verification.model_dump())
+
+        # 10. Gap detection alert
+        if result.gap_detection:
+            yield sse_event("gap_alert", result.gap_detection.model_dump())
+
+        # 11. Done
         yield sse_event(
             "done",
             {
                 "confidence": result.confidence,
                 "latency_ms": result.latency_ms,
+                "strategy": result.strategy_used,
+                "evidence_count": len(result.evidence),
+                "entity_count": len(result.cited_entities),
             },
         )
 
