@@ -1,11 +1,7 @@
 """Guided demo runner — walks through scenarios with rich terminal output.
 
-Delegated implementation tasks
-------------------------------
-* TODO: Implement ``run_demo`` — call ``/chat/send`` for each question and
-  display results with Rich formatting.
-* TODO: Add ``--export`` flag to save results as HTML / PDF.
-* TODO: Add timing and confidence comparison table across strategies.
+Runs demo scenarios against the live GraphQA API, displaying results with
+Rich formatting including answer text and confidence scores.
 """
 
 from __future__ import annotations

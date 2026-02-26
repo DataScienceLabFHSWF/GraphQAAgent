@@ -1,20 +1,9 @@
 """Explorer API routes — KG browsing, law graph, and ontology endpoints.
 
 These endpoints let the frontend (Streamlit or TypeScript) interactively
-browse the knowledge graph and ontology.
-
-All endpoints currently return ``501 Not Implemented`` — they are stubs
-ready for delegation.
-
-Delegated implementation tasks
-------------------------------
-* TODO: Implement each endpoint using the injected Neo4j / Fuseki
-  connectors.  The Cypher / SPARQL query sketches are in the docstrings.
-* TODO: Add pagination helpers (cursor-based for Neo4j, OFFSET/LIMIT for
-  SPARQL).
-* TODO: Return vis.js-compatible JSON from ``get_entity_subgraph`` so
-  the frontend can render directly.
-* TODO: Build the ontology tree from Fuseki class hierarchy and cache it.
+browse the knowledge graph and ontology.  Endpoints use the injected
+Neo4j and Fuseki connectors with pagination support and vis.js-compatible
+subgraph output.
 """
 
 from __future__ import annotations

@@ -31,7 +31,7 @@ However, n10s is *very useful* in a HITL versioning pipeline:
 3. **Named graphs** — map provenance contexts (who changed what and when)
    to RDF named graphs.
 
-**Recommended versioning approach** (implemented below as stubs):
+**Recommended versioning approach** (implemented below as services):
 
 - **Temporal properties** on every node/edge: ``_version``, ``_valid_from``,
   ``_valid_to``, ``_modified_by``, ``_change_event_id``.

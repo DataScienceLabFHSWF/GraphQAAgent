@@ -1,12 +1,8 @@
 """Styled chat message bubble component.
 
 Provides a richer chat message display than the default ``st.chat_message``
-— with collapsible metadata sections.
-
-Delegated implementation tasks
-------------------------------
-* TODO: Implement a custom Streamlit component with HTML/CSS for richer
-  styling (confidence badge, entity chips, source pills).
+— with collapsible metadata sections for confidence, reasoning steps, and
+source provenance.
 """
 
 from __future__ import annotations
@@ -25,11 +21,7 @@ def render_chat_message(
     provenance: list[dict[str, Any]] | None = None,
     latency_ms: float = 0.0,
 ) -> None:
-    """Render a single chat message with metadata sections.
-
-    TODO (delegate): Replace with a custom Streamlit component for
-    richer styling.
-    """
+    """Render a single chat message with metadata sections."""
     with st.chat_message(role):
         st.write(content)
 

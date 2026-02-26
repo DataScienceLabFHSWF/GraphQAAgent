@@ -1,13 +1,8 @@
 """KG Explorer page — browse entities, relations, and subgraphs.
 
-Delegated implementation tasks
-------------------------------
-* TODO: Wire ``/api/v1/explore/entities`` with search + type filter.
-* TODO: Display entity details in an expandable card on click.
-* TODO: Render subgraph around selected entity using
-  ``components.subgraph_viewer.render_subgraph``.
-* TODO: Show relation type distribution chart.
-* TODO: Add law graph browser tab.
+Searches entities via the Explorer API with type filtering, displays
+entity details on selection, renders interactive subgraphs using pyvis,
+and shows relation type distribution charts.
 """
 
 from __future__ import annotations

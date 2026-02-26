@@ -1,13 +1,8 @@
 """Ontology browser page — TBox class hierarchy and properties.
 
-Delegated implementation tasks
-------------------------------
-* TODO: Fetch class hierarchy from ``/api/v1/explore/ontology/tree`` and
-  render as a collapsible tree (``st.tree`` or D3-based component).
-* TODO: Show properties for selected class via
-  ``/api/v1/explore/ontology/classes/{uri}/properties``.
-* TODO: Display the raw TTL file from ``data/ontologies/`` with syntax
-  highlighting.
+Fetches the class hierarchy from the Explorer API, renders it as a
+collapsible tree, displays properties for the selected class, and shows
+the raw TTL ontology file with syntax highlighting.
 """
 
 from __future__ import annotations

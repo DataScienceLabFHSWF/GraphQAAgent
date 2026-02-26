@@ -1,11 +1,7 @@
 """Interactive subgraph visualisation using pyvis.
 
-This is the dedicated module — re-exports from ``__init__`` for convenience.
-
-Delegated implementation tasks
-------------------------------
-* TODO: Implement with pyvis (``Network.generate_html`` → ``st.components.html``).
-* TODO: Add physics toggle, node grouping, zoom controls.
+Re-exports the ``render_subgraph`` function and ``TYPE_COLORS`` mapping
+from the components package for convenience.
 """
 
 from __future__ import annotations

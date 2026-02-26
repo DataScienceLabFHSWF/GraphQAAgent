@@ -58,7 +58,7 @@ async def stream_chat_response(
     Runs the full pipeline synchronously, then streams the result in
     discrete events so the frontend can progressively render each piece.
 
-    TODO (delegate):
+    Future improvements:
     * Replace word-level token simulation with real LLM callback streaming.
     * Emit ``thinking`` events during long retrieval phases.
     """

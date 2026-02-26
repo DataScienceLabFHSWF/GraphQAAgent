@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -30,16 +31,26 @@ class DummyOrchestrator:
         return A()
 
 
+def _fake_request() -> MagicMock:
+    """Create a minimal mock for ``starlette.requests.Request``."""
+    req = MagicMock()
+    req.client = MagicMock()
+    req.client.host = "127.0.0.1"
+    return req
+
+
 @pytest.fixture(autouse=True)
 def patch_session_manager(monkeypatch):
     mgr = ChatSessionManager(DummyOrchestrator())
     monkeypatch.setattr(cr, "_session_manager", mgr)
+    # Reset rate-limit buckets between tests
+    cr._rate_buckets.clear()
     yield mgr
 
 
 def test_chat_send_basic():
     req = ChatRequest(message="hi", strategy="", language="de", stream=False)
-    resp = asyncio.get_event_loop().run_until_complete(cr.chat_send(req))
+    resp = asyncio.get_event_loop().run_until_complete(cr.chat_send(req, _fake_request()))
     assert resp.message.content == "hello"
     assert resp.confidence == pytest.approx(0.42)
     assert resp.subgraph == {"nodes": [], "edges": []}
@@ -47,7 +58,7 @@ def test_chat_send_basic():
 
 def test_sessions_and_history():
     req = ChatRequest(session_id="s1", message="hi", strategy="", language="de", stream=False)
-    asyncio.get_event_loop().run_until_complete(cr.chat_send(req))
+    asyncio.get_event_loop().run_until_complete(cr.chat_send(req, _fake_request()))
     sessions = asyncio.get_event_loop().run_until_complete(cr.list_sessions())
     assert any(s["session_id"] == "s1" for s in sessions)
     history = asyncio.get_event_loop().run_until_complete(cr.get_history("s1"))

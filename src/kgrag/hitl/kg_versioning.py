@@ -30,23 +30,11 @@ Nodes (new labels / properties):
         proposal_id:   STRING,    // links to the ChangeProposal if HITL-driven
         status:        STRING,    // "applied" | "rolled_back"
     })
-
-Delegated implementation tasks
-------------------------------
-* TODO: Implement ``apply_change`` — write temporal properties + create
-  ChangeEvent node in a single Neo4j transaction.
-* TODO: Implement ``query_as_of`` — filter on ``_valid_from <= t``
-  and ``(_valid_to IS NULL OR _valid_to > t)``.
-* TODO: Implement ``rollback_change`` — restore ``before_snapshot``
-  and set ``status = 'rolled_back'``.
-* TODO: Implement ``get_entity_history`` — return all versions of an
-  entity ordered by ``_valid_from``.
-* TODO: Add a ``_version`` auto-increment via Neo4j APOC triggers or
-  application-level logic.
 """
 
 from __future__ import annotations
 
+import json as json_mod
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -99,8 +87,9 @@ class ChangeEvent:
 class KGVersioningService:
     """Manage temporal versioning of the knowledge graph.
 
-    All methods are stubs — they sketch the Cypher queries and logic
-    that need to be implemented.
+    All mutation methods execute within Neo4j transactions so that the
+    audit trail (``ChangeEvent`` nodes) and the temporal properties on
+    entity/relation nodes are always consistent.
     """
 
     def __init__(self, neo4j_connector: Any) -> None:
@@ -111,6 +100,23 @@ class KGVersioningService:
             Instance of :class:`kgrag.connectors.neo4j.Neo4jConnector`.
         """
         self._neo4j = neo4j_connector
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    def _db(self) -> str:
+        """Return the configured Neo4j database name."""
+        return self._neo4j._config.database
+
+    @staticmethod
+    def _snap_json(data: dict[str, Any] | None) -> str | None:
+        """Serialise a snapshot dict to JSON (or None)."""
+        return json_mod.dumps(data, default=str) if data else None
+
+    # ------------------------------------------------------------------
+    # apply_change
+    # ------------------------------------------------------------------
 
     async def apply_change(
         self,
@@ -124,32 +130,11 @@ class KGVersioningService:
     ) -> ChangeEvent:
         """Apply a change to the KG and create an audit record.
 
-        Steps:
         1. Read current state of the target (``before_snapshot``).
         2. Set ``_valid_to = now()`` on the current version.
         3. Create a new version with ``_valid_from = now()``,
            ``_version = prev + 1``.
         4. Create a ``ChangeEvent`` node linked to the target.
-
-        TODO (delegate): Implement as a single Neo4j transaction.
-
-        Cypher sketch::
-
-            // For entity update:
-            MATCH (n:Entity {id: $target_id})
-            WHERE n._valid_to IS NULL
-            SET n._valid_to = datetime()
-            WITH n, properties(n) AS before
-            CREATE (n2:Entity)
-            SET n2 = $new_data
-            SET n2._valid_from = datetime(),
-                n2._version = n._version + 1,
-                n2._modified_by = $author,
-                n2._change_event_id = $ce_id
-            CREATE (ce:ChangeEvent {
-                id: $ce_id, timestamp: datetime(), ...
-            })
-            RETURN ce, before
         """
         event = ChangeEvent(
             author=author,
@@ -159,13 +144,99 @@ class KGVersioningService:
             after_snapshot=new_data,
             proposal_id=proposal_id,
         )
+
+        async with self._neo4j.driver.session(database=self._db()) as session:
+            async with session.begin_transaction() as tx:
+                # 1. Read + supersede current version
+                read_q = (
+                    "MATCH (n {id: $tid}) WHERE n._valid_to IS NULL "
+                    "RETURN properties(n) AS props, elementId(n) AS eid"
+                )
+                res = await tx.run(read_q, tid=target_id)
+                record = await res.single()
+
+                if record and change_type != ChangeType.CREATE:
+                    before = dict(record["props"])
+                    event.before_snapshot = before
+                    old_version = before.get("_version", 0)
+
+                    # Close the old version
+                    await tx.run(
+                        "MATCH (n {id: $tid}) WHERE n._valid_to IS NULL "
+                        "SET n._valid_to = datetime()",
+                        tid=target_id,
+                    )
+                else:
+                    old_version = 0
+
+                # 2. Create / update the live node
+                if change_type == ChangeType.DELETE:
+                    # Soft-delete: we already closed the old version above
+                    pass
+                else:
+                    # Build properties for the new version node
+                    props = dict(new_data)
+                    props["id"] = target_id
+                    props["_version"] = old_version + 1
+                    props["_valid_from"] = "datetime()"  # set below via Cypher
+                    props["_modified_by"] = author
+                    props["_change_event_id"] = event.id
+                    # Remove meta keys that we set via Cypher SET
+                    props.pop("_valid_from", None)
+
+                    create_q = (
+                        "CREATE (n2 {id: $tid}) "
+                        "SET n2 += $props, "
+                        "    n2._valid_from = datetime(), "
+                        "    n2._version = $ver, "
+                        "    n2._modified_by = $author, "
+                        "    n2._change_event_id = $ceid"
+                    )
+                    await tx.run(
+                        create_q,
+                        tid=target_id,
+                        props=new_data,
+                        ver=old_version + 1,
+                        author=author,
+                        ceid=event.id,
+                    )
+
+                # 3. Create the ChangeEvent audit node
+                ce_q = (
+                    "CREATE (ce:ChangeEvent {"
+                    "  id: $ceid, timestamp: datetime(), "
+                    "  author: $author, change_type: $ctype, "
+                    "  target_type: $ttype, target_id: $tid, "
+                    "  before_snapshot: $before, after_snapshot: $after, "
+                    "  proposal_id: $pid, status: $status"
+                    "})"
+                )
+                await tx.run(
+                    ce_q,
+                    ceid=event.id,
+                    author=author,
+                    ctype=change_type.value,
+                    ttype=target_type,
+                    tid=target_id,
+                    before=self._snap_json(event.before_snapshot),
+                    after=self._snap_json(event.after_snapshot),
+                    pid=proposal_id or "",
+                    status=ChangeStatus.APPLIED.value,
+                )
+
+                await tx.commit()
+
         logger.info(
             "kg_versioning.apply_change",
             change_event_id=event.id,
             change_type=change_type.value,
             target_id=target_id,
         )
-        raise NotImplementedError("KGVersioningService.apply_change — implement Neo4j transaction")
+        return event
+
+    # ------------------------------------------------------------------
+    # query_as_of
+    # ------------------------------------------------------------------
 
     async def query_as_of(
         self,
@@ -174,37 +245,115 @@ class KGVersioningService:
     ) -> dict[str, Any] | None:
         """Query the state of an entity at a specific point in time.
 
-        If ``timestamp`` is None, returns the current (live) version.
-
-        TODO (delegate): Cypher::
-
-            MATCH (n:Entity {id: $id})
-            WHERE n._valid_from <= $ts
-              AND (n._valid_to IS NULL OR n._valid_to > $ts)
-            RETURN n
+        If ``timestamp`` is ``None``, returns the current (live) version.
         """
-        raise NotImplementedError("KGVersioningService.query_as_of")
+        if timestamp is None:
+            query = (
+                "MATCH (n {id: $eid}) WHERE n._valid_to IS NULL "
+                "RETURN properties(n) AS props"
+            )
+            params: dict[str, Any] = {"eid": entity_id}
+        else:
+            query = (
+                "MATCH (n {id: $eid}) "
+                "WHERE n._valid_from <= datetime($ts) "
+                "  AND (n._valid_to IS NULL OR n._valid_to > datetime($ts)) "
+                "RETURN properties(n) AS props"
+            )
+            params = {"eid": entity_id, "ts": timestamp.isoformat()}
+
+        async with self._neo4j.driver.session(database=self._db()) as session:
+            result = await session.run(query, **params)
+            record = await result.single()
+
+        return dict(record["props"]) if record else None
+
+    # ------------------------------------------------------------------
+    # get_entity_history
+    # ------------------------------------------------------------------
 
     async def get_entity_history(self, entity_id: str) -> list[dict[str, Any]]:
-        """Return all versions of an entity, ordered by ``_valid_from``.
+        """Return all versions of an entity, ordered by ``_valid_from``."""
+        query = (
+            "MATCH (n {id: $eid}) "
+            "RETURN properties(n) AS props "
+            "ORDER BY n._valid_from"
+        )
+        async with self._neo4j.driver.session(database=self._db()) as session:
+            result = await session.run(query, eid=entity_id)
+            records = await result.data()
+        return [dict(r["props"]) for r in records]
 
-        TODO (delegate): Cypher::
-
-            MATCH (n:Entity {id: $id})
-            RETURN n ORDER BY n._valid_from
-        """
-        raise NotImplementedError("KGVersioningService.get_entity_history")
+    # ------------------------------------------------------------------
+    # rollback_change
+    # ------------------------------------------------------------------
 
     async def rollback_change(self, change_event_id: str) -> None:
         """Rollback a change — restore ``before_snapshot`` and mark the event.
 
-        TODO (delegate):
         1. Find the ChangeEvent node.
         2. Set ``_valid_to = now()`` on the post-change version.
-        3. Create a new version from ``before_snapshot`` with ``_valid_from = now()``.
+        3. Create a new version from ``before_snapshot`` with
+           ``_valid_from = now()``.
         4. Mark the ChangeEvent as ``rolled_back``.
         """
-        raise NotImplementedError("KGVersioningService.rollback_change")
+        async with self._neo4j.driver.session(database=self._db()) as session:
+            async with session.begin_transaction() as tx:
+                # 1. Find the ChangeEvent
+                ce_q = (
+                    "MATCH (ce:ChangeEvent {id: $ceid}) "
+                    "RETURN ce.target_id AS tid, ce.before_snapshot AS before_snap, "
+                    "       ce.status AS status"
+                )
+                res = await tx.run(ce_q, ceid=change_event_id)
+                record = await res.single()
+
+                if not record:
+                    raise ValueError(f"ChangeEvent {change_event_id} not found")
+                if record["status"] == ChangeStatus.ROLLED_BACK.value:
+                    raise ValueError(f"ChangeEvent {change_event_id} already rolled back")
+
+                target_id = record["tid"]
+                before_json = record["before_snap"]
+                before_data = json_mod.loads(before_json) if before_json else {}
+
+                # 2. Close the post-change version
+                await tx.run(
+                    "MATCH (n {id: $tid}) WHERE n._valid_to IS NULL "
+                    "SET n._valid_to = datetime()",
+                    tid=target_id,
+                )
+
+                # 3. Restore before_snapshot as a new live version
+                if before_data:
+                    restore_q = (
+                        "CREATE (n {id: $tid}) "
+                        "SET n += $props, "
+                        "    n._valid_from = datetime(), "
+                        "    n._modified_by = 'rollback', "
+                        "    n._change_event_id = $ceid"
+                    )
+                    await tx.run(
+                        restore_q,
+                        tid=target_id,
+                        props=before_data,
+                        ceid=change_event_id,
+                    )
+
+                # 4. Mark the ChangeEvent as rolled_back
+                await tx.run(
+                    "MATCH (ce:ChangeEvent {id: $ceid}) "
+                    "SET ce.status = 'rolled_back'",
+                    ceid=change_event_id,
+                )
+
+                await tx.commit()
+
+        logger.info("kg_versioning.rollback", change_event_id=change_event_id)
+
+    # ------------------------------------------------------------------
+    # get_change_log
+    # ------------------------------------------------------------------
 
     async def get_change_log(
         self,
@@ -213,13 +362,49 @@ class KGVersioningService:
         target_id: str | None = None,
         author: str | None = None,
     ) -> list[ChangeEvent]:
-        """Return recent change events, optionally filtered.
+        """Return recent change events, optionally filtered."""
+        clauses = ["MATCH (ce:ChangeEvent)"]
+        where_parts: list[str] = []
+        params: dict[str, Any] = {"limit": limit}
 
-        TODO (delegate): Cypher::
+        if target_id:
+            where_parts.append("ce.target_id = $tid")
+            params["tid"] = target_id
+        if author:
+            where_parts.append("ce.author = $auth")
+            params["auth"] = author
 
-            MATCH (ce:ChangeEvent)
-            WHERE ($target_id IS NULL OR ce.target_id = $target_id)
-              AND ($author IS NULL OR ce.author = $author)
-            RETURN ce ORDER BY ce.timestamp DESC LIMIT $limit
-        """
-        raise NotImplementedError("KGVersioningService.get_change_log")
+        if where_parts:
+            clauses.append("WHERE " + " AND ".join(where_parts))
+        clauses.append("RETURN ce ORDER BY ce.timestamp DESC LIMIT $limit")
+        query = " ".join(clauses)
+
+        async with self._neo4j.driver.session(database=self._db()) as session:
+            result = await session.run(query, **params)
+            records = await result.data()
+
+        events: list[ChangeEvent] = []
+        for rec in records:
+            ce = rec["ce"]
+            events.append(
+                ChangeEvent(
+                    id=ce.get("id", ""),
+                    author=ce.get("author", "system"),
+                    change_type=ChangeType(ce.get("change_type", "update")),
+                    target_type=ce.get("target_type", "entity"),
+                    target_id=ce.get("target_id", ""),
+                    before_snapshot=(
+                        json_mod.loads(ce["before_snapshot"])
+                        if ce.get("before_snapshot")
+                        else None
+                    ),
+                    after_snapshot=(
+                        json_mod.loads(ce["after_snapshot"])
+                        if ce.get("after_snapshot")
+                        else None
+                    ),
+                    proposal_id=ce.get("proposal_id") or None,
+                    status=ChangeStatus(ce.get("status", "applied")),
+                )
+            )
+        return events

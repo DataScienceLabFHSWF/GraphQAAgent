@@ -1,16 +1,12 @@
 """Persistent chat history storage.
 
-Currently provides an in-memory stub.  Concrete storage backends (JSON file,
-SQLite) should be implemented behind the ``HistoryStore`` protocol so the
-``ChatSessionManager`` can be configured at startup.
+Provides three backends behind the ``HistoryStore`` protocol:
 
-Delegated implementation tasks
-------------------------------
-* TODO: Implement ``JsonFileHistoryStore`` — serialise sessions to a JSON
-  file under ``data/chat_sessions/``.
-* TODO: Implement ``SqliteHistoryStore`` — persist turns in a local SQLite
-  database for faster querying and pagination.
-* TODO: Add TTL-based session expiry.
+* ``InMemoryHistoryStore`` — non-persistent, for tests and quick dev.
+* ``JsonFileHistoryStore`` — persists sessions as JSON files.
+* ``SqliteHistoryStore`` — persists turns in a local SQLite database.
+
+All backends support ``session_ttl_seconds`` for TTL-based session expiry.
 """
 
 from __future__ import annotations
@@ -60,10 +56,18 @@ class InMemoryHistoryStore:
 
     Good for development and tests.  Replace with ``JsonFileHistoryStore``
     or ``SqliteHistoryStore`` for production.
+
+    Parameters
+    ----------
+    session_ttl_seconds:
+        Maximum age (in seconds) of the *most recent* turn in a session
+        before the session is eligible for expiry.  ``0`` disables TTL
+        (default).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, session_ttl_seconds: int = 0) -> None:
         self._sessions: dict[str, list[dict[str, Any]]] = {}
+        self.session_ttl_seconds = session_ttl_seconds
 
     async def save_turn(
         self,
@@ -72,8 +76,6 @@ class InMemoryHistoryStore:
         assistant_message: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        import time
-
         if session_id not in self._sessions:
             self._sessions[session_id] = []
         self._sessions[session_id].append(
@@ -97,9 +99,28 @@ class InMemoryHistoryStore:
             for sid, turns in self._sessions.items()
         ]
 
+    async def expire_sessions(self) -> int:
+        """Delete sessions whose most recent turn is older than the TTL.
+
+        Returns the number of expired sessions removed.
+        """
+        if self.session_ttl_seconds <= 0:
+            return 0
+        cutoff = time.time() - self.session_ttl_seconds
+        expired = [
+            sid
+            for sid, turns in self._sessions.items()
+            if turns and turns[-1].get("timestamp", 0) < cutoff
+        ]
+        for sid in expired:
+            del self._sessions[sid]
+        if expired:
+            logger.info("expired_sessions", count=len(expired), store="memory")
+        return len(expired)
+
 
 # ---------------------------------------------------------------------------
-# JSON file store (stub)
+# JSON file store
 # ---------------------------------------------------------------------------
 
 
@@ -111,13 +132,20 @@ class JsonFileHistoryStore:
     """Persist sessions as JSON files under a configurable directory.
 
     Each session is stored in ``{base_dir}/{session_id}.json`` as a list of
-    turn dicts.  The implementation uses synchronous file I/O wrapped in
-    ``asyncio.to_thread`` to avoid blocking the event loop.
+    turn dicts.  File I/O is wrapped in ``asyncio.to_thread`` to avoid
+    blocking the event loop.
+
+    Parameters
+    ----------
+    session_ttl_seconds:
+        Maximum age (in seconds) of the *most recent* turn before the
+        session file is eligible for expiry/deletion.  ``0`` disables TTL.
     """
 
-    def __init__(self, base_dir: str = "data/chat_sessions") -> None:
+    def __init__(self, base_dir: str = "data/chat_sessions", session_ttl_seconds: int = 0) -> None:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.session_ttl_seconds = session_ttl_seconds
 
     async def save_turn(
         self,
@@ -175,9 +203,27 @@ class JsonFileHistoryStore:
                 continue
         return sessions
 
+    async def expire_sessions(self) -> int:
+        """Delete session files whose most recent turn is older than the TTL."""
+        if self.session_ttl_seconds <= 0:
+            return 0
+        cutoff = time.time() - self.session_ttl_seconds
+        expired = 0
+        for file in self.base_dir.glob("*.json"):
+            try:
+                data = await asyncio.to_thread(lambda p=file: json.load(open(p, "r")))
+                if data and data[-1].get("timestamp", 0) < cutoff:
+                    await asyncio.to_thread(file.unlink)
+                    expired += 1
+            except Exception:
+                continue
+        if expired:
+            logger.info("expired_sessions", count=expired, store="json")
+        return expired
+
 
 # ---------------------------------------------------------------------------
-# SQLite store (stub)
+# SQLite store
 # ---------------------------------------------------------------------------
 
 
@@ -186,12 +232,18 @@ import aiosqlite
 class SqliteHistoryStore:
     """Persist sessions in a local SQLite database.
 
-    The database is created automatically if it doesn't exist.  Methods
-    perform simple SQL queries; this is sufficient for demo / testing.
+    The database is created automatically if it doesn't exist.
+
+    Parameters
+    ----------
+    session_ttl_seconds:
+        Maximum age (in seconds) of the *most recent* turn in a session
+        before the session is eligible for expiry.  ``0`` disables TTL.
     """
 
-    def __init__(self, db_path: str = "data/chat_history.db") -> None:
+    def __init__(self, db_path: str = "data/chat_history.db", session_ttl_seconds: int = 0) -> None:
         self.db_path = db_path
+        self.session_ttl_seconds = session_ttl_seconds
         # ensure parent directory exists
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -257,3 +309,31 @@ class SqliteHistoryStore:
             rows = await cursor.fetchall()
             cols = [c[0] for c in cursor.description]
         return [dict(zip(cols, row)) for row in rows]
+
+    async def expire_sessions(self) -> int:
+        """Delete sessions whose most recent turn is older than the TTL.
+
+        Uses a single SQL statement for efficiency.
+        """
+        if self.session_ttl_seconds <= 0:
+            return 0
+        cutoff = time.time() - self.session_ttl_seconds
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Find sessions where the newest turn is older than the cutoff
+            cursor = await db.execute(
+                "SELECT session_id FROM turns "
+                "GROUP BY session_id HAVING MAX(created_at) < ?",
+                (cutoff,),
+            )
+            rows = await cursor.fetchall()
+            expired_ids = [r[0] for r in rows]
+            if expired_ids:
+                placeholders = ",".join("?" for _ in expired_ids)
+                await db.execute(
+                    f"DELETE FROM turns WHERE session_id IN ({placeholders})",
+                    expired_ids,
+                )
+                await db.commit()
+                logger.info("expired_sessions", count=len(expired_ids), store="sqlite")
+        return len(expired_ids) if expired_ids else 0

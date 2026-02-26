@@ -5,12 +5,8 @@ Launch with::
     streamlit run src/kgrag/frontend/app.py --server.port 8501
 
 Uses the sidebar for navigation and system status.  Pages live under
-``pages/`` and are auto-discovered by Streamlit.
-
-Delegated implementation tasks
-------------------------------
-* TODO: Implement the health check call to ``/api/v1/health``.
-* TODO: Add authentication / API key configuration in sidebar.
+``pages/`` and are auto-discovered by Streamlit.  The sidebar includes a
+live health check against the API backend.
 """
 
 from __future__ import annotations

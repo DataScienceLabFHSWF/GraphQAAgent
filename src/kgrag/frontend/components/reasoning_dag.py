@@ -1,13 +1,8 @@
 """Chain-of-Thought reasoning visualisation.
 
 Renders reasoning steps as an expandable timeline with confidence bars
-and grounding entity links.
-
-Delegated implementation tasks
-------------------------------
-* TODO: Render each step as a rich card with entity highlighting.
-* TODO: Link grounding entities to the KG Explorer page.
-* TODO: Add a DAG / flowchart view for multi-hop reasoning paths.
+and grounding entity links.  Each step is displayed as a rich card with
+entity highlighting, and grounding entities link to the KG Explorer API.
 """
 
 from __future__ import annotations

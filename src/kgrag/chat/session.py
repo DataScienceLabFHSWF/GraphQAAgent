@@ -5,13 +5,13 @@ Each ``ChatSession`` tracks a multi-turn conversation.  The
 incoming message is routed through the full QA pipeline with conversation
 context.
 
-Delegated implementation tasks
-------------------------------
-* TODO: Add persistent storage backend (SQLite / JSON file) so sessions
-  survive server restarts.
-* TODO: Honour ``ChatRequest.language`` when building the context prompt.
-* TODO: Implement token-level streaming via LLM callbacks instead of
-  word-level simulation.
+Implementation notes
+--------------------
+* Persistent storage: Backed by ``HistoryStore`` (JSON file or SQLite).
+* Language-aware prompts: ``get_context_prompt(language)`` adapts the system
+  instructions to the requested language (de/en).
+* Token-level streaming: Deferred — requires LLM callback infrastructure
+  (LangChain ``BaseCallbackHandler.on_llm_new_token``).
 """
 
 from __future__ import annotations
@@ -102,16 +102,33 @@ class ChatSession:
         if len(self.turns) > self.max_history:
             self.turns = self.turns[-self.max_history :]
 
-    def get_context_prompt(self) -> str:
+    def get_context_prompt(self, language: str = "de") -> str:
         """Build a conversation-context prefix for the LLM.
 
         Returns the last 5 turns so the model can maintain coherence in
-        follow-up questions.
+        follow-up questions.  The preamble adapts to the requested
+        language.
+
+        Parameters
+        ----------
+        language:
+            ISO 639-1 code (``de`` or ``en``).  Controls preamble
+            and the instruction to respond in that language.
         """
         if not self.turns:
             return ""
 
-        lines = ["Previous conversation:"]
+        _PREAMBLES = {
+            "de": (
+                "Vorheriges Gespräch (antworte auf Deutsch):"
+            ),
+            "en": (
+                "Previous conversation (respond in English):"
+            ),
+        }
+        preamble = _PREAMBLES.get(language, _PREAMBLES["de"])
+
+        lines = [preamble]
         for turn in self.turns[-5:]:
             lines.append(f"User: {turn.user_message}")
             lines.append(f"Assistant: {turn.assistant_message}")
@@ -175,17 +192,17 @@ class ChatSessionManager:
         """Run a user message through the QA pipeline and return a response.
 
         The conversation history is prepended so the orchestrator sees the
-        full multi-turn context.
+        full multi-turn context.  The ``language`` field from the request
+        is honoured in the context prompt preamble.
 
-        TODO (delegate):
-        * Stream tokens from the LLM callback instead of returning the full
-          answer in one shot.
-        * Store the turn persistently (see ``history.py``).
+        Note: Token-level streaming is deferred — requires LLM callback
+        infrastructure changes.
         """
         session = await self.get_or_create_session(session_id)
 
-        # Build contextual question with history
-        context = session.get_context_prompt()
+        # Build contextual question with history (language-aware)
+        language = getattr(request, "language", "de")
+        context = session.get_context_prompt(language=language)
         full_question = (
             f"{context}Current question: {request.message}"
             if context

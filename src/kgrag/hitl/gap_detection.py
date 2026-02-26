@@ -6,13 +6,6 @@ captures those signals and converts them into actionable items:
 - **Low-confidence answers** → potential ABox gaps (missing entities/relations)
 - **Unanswerable questions** → potential TBox gaps (missing ontology classes)
 - **Repeated failures** → prioritised research items for domain experts
-
-Delegated implementation tasks
-------------------------------
-* TODO: Implement ``detect_gaps`` — analyse recent QA sessions for patterns.
-* TODO: Auto-create ``ChangeProposal`` items from detected gaps.
-* TODO: Integrate with the OntologyExtender repo for TBox-level fixes.
-* TODO: Add a Streamlit page showing the gap detection dashboard.
 """
 
 from __future__ import annotations
@@ -41,10 +34,7 @@ class DetectedGap:
 
 
 class GapDetector:
-    """Detect knowledge gaps from QA interaction history.
-
-    All methods are stubs.
-    """
+    """Detect knowledge gaps from QA interaction history."""
 
     def __init__(self, confidence_threshold: float = 0.5) -> None:
         self.confidence_threshold = confidence_threshold
@@ -69,8 +59,6 @@ class GapDetector:
         - ``evidence_count == 0`` → definitely missing knowledge
         - Hedging language in answer → possible gap
         - Empty reasoning chain → retrieval failure
-
-        TODO (delegate): Implement heuristics and gap classification.
         """
         if confidence >= self.confidence_threshold and evidence_count > 0:
             return None

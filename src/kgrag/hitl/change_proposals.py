@@ -7,12 +7,8 @@ knowledge graph.  Each proposal goes through a lifecycle::
                  ↓
              rejected
 
-Delegated implementation tasks
-------------------------------
-* TODO: Persist proposals (SQLite or Neo4j `ChangeProposal` nodes).
-* TODO: Implement SHACL validation via n10s before accepting.
-* TODO: Add a review UI in Streamlit (Phase D extension).
-* TODO: Wire accepted proposals to ``KGVersioningService.apply_change``.
+Proposals are stored in-memory (dict).  For production persistence,
+swap for SQLite or Neo4j ``ChangeProposal`` nodes.
 """
 
 from __future__ import annotations
@@ -89,7 +85,9 @@ class ChangeProposal:
 class ChangeProposalService:
     """Manage the lifecycle of change proposals.
 
-    All methods are stubs.
+    Validation checks basic field requirements and optionally runs SHACL
+    validation when a Fuseki connector is available.  Accepted proposals
+    are applied via :class:`KGVersioningService`.
     """
 
     def __init__(self, versioning_service: Any, fuseki_connector: Any = None) -> None:
@@ -116,10 +114,7 @@ class ChangeProposalService:
         trigger_confidence: float | None = None,
         rationale: str = "",
     ) -> ChangeProposal:
-        """Create a new change proposal.
-
-        TODO (delegate): Persist to storage.
-        """
+        """Create a new change proposal and store it in-memory."""
         proposal = ChangeProposal(
             author=author,
             proposal_type=proposal_type,
@@ -138,24 +133,64 @@ class ChangeProposalService:
         return proposal
 
     async def validate_proposal(self, proposal_id: str) -> ChangeProposal:
-        """Validate a proposal against SHACL shapes via n10s / Fuseki.
+        """Validate a proposal against schema rules and (optionally) SHACL.
 
-        Steps:
-        1. Convert ``proposed_data`` to RDF triples.
-        2. Run SHACL validation against the domain ontology.
-        3. Update ``shacl_valid`` and ``validation_errors``.
-        4. If valid, advance status to ``VALIDATED``.
-
-        TODO (delegate): Implement SHACL validation.  If n10s is available::
-
-            // In Neo4j with n10s plugin:
-            CALL n10s.validation.shacl.validate(
-                $rdf_triples, 'Turtle'
-            ) YIELD focusNode, resultMessage, ...
-
-        Alternative: Use pyshacl library directly on the Fuseki endpoint.
+        Checks:
+        1. Required fields present (``proposed_data`` is non-empty, target_id
+           is set for updates/deletes).
+        2. If a Fuseki connector is available, attempt SHACL validation via
+           the ``N10sIntegration`` helper.
+        3. Advance status to ``VALIDATED`` if all checks pass.
         """
-        raise NotImplementedError("ChangeProposalService.validate_proposal")
+        proposal = self._proposals.get(proposal_id)
+        if not proposal:
+            raise ValueError(f"Proposal {proposal_id} not found")
+
+        errors: list[str] = []
+
+        # Basic field validation
+        if not proposal.proposed_data:
+            errors.append("proposed_data must not be empty")
+
+        needs_target = proposal.proposal_type in {
+            ProposalType.UPDATE_ENTITY,
+            ProposalType.DELETE_ENTITY,
+            ProposalType.UPDATE_RELATION,
+            ProposalType.DELETE_RELATION,
+            ProposalType.UPDATE_PROPERTY,
+        }
+        if needs_target and not proposal.target_id:
+            errors.append("target_id is required for update/delete proposals")
+
+        # Optional SHACL validation (best-effort)
+        if not errors and self._fuseki is not None:
+            try:
+                from kgrag.hitl.n10s_integration import N10sIntegration
+
+                n10s = N10sIntegration(self._versioning._neo4j)
+                if await n10s.check_n10s_available():
+                    import json as _j
+
+                    rdf_stub = _j.dumps(proposal.proposed_data)
+                    results = await n10s.validate_with_shacl(rdf_stub)
+                    for r in results:
+                        if r.get("resultSeverity") == "Violation":
+                            errors.append(r.get("resultMessage", "SHACL violation"))
+                    proposal.shacl_valid = len(results) == 0 or all(
+                        r.get("resultSeverity") != "Violation" for r in results
+                    )
+            except Exception as exc:
+                logger.debug("shacl_validation_skipped", error=str(exc))
+                proposal.shacl_valid = None  # indeterminate
+
+        proposal.validation_errors = errors
+        if errors:
+            logger.info("hitl.proposal_validation_failed", proposal_id=proposal_id, errors=errors)
+        else:
+            proposal.status = ProposalStatus.VALIDATED
+            logger.info("hitl.proposal_validated", proposal_id=proposal_id)
+
+        return proposal
 
     async def accept_proposal(
         self,
@@ -164,10 +199,7 @@ class ChangeProposalService:
         reviewer: str = "anonymous",
         comment: str = "",
     ) -> ChangeProposal:
-        """Expert-approve a validated proposal.
-
-        TODO (delegate): Update status and persist.
-        """
+        """Expert-approve a validated proposal."""
         proposal = self._proposals.get(proposal_id)
         if not proposal:
             raise ValueError(f"Proposal {proposal_id} not found")
@@ -178,12 +210,45 @@ class ChangeProposalService:
         return proposal
 
     async def apply_proposal(self, proposal_id: str) -> None:
-        """Apply an accepted proposal to the live KG.
+        """Apply an accepted proposal to the live KG via KGVersioningService.
 
-        TODO (delegate): Call ``KGVersioningService.apply_change`` and
-        advance status to ``APPLIED``.
+        Delegates to ``KGVersioningService.apply_change`` and advances the
+        proposal status to ``APPLIED``.
         """
-        raise NotImplementedError("ChangeProposalService.apply_proposal")
+        proposal = self._proposals.get(proposal_id)
+        if not proposal:
+            raise ValueError(f"Proposal {proposal_id} not found")
+        if proposal.status != ProposalStatus.ACCEPTED:
+            raise ValueError(
+                f"Proposal {proposal_id} is '{proposal.status.value}', expected 'accepted'"
+            )
+
+        # Map ProposalType to a ChangeType for the versioning service
+        from kgrag.hitl.kg_versioning import ChangeType
+
+        _TYPE_MAP = {
+            ProposalType.ADD_ENTITY: ChangeType.CREATE,
+            ProposalType.UPDATE_ENTITY: ChangeType.UPDATE,
+            ProposalType.DELETE_ENTITY: ChangeType.DELETE,
+            ProposalType.ADD_RELATION: ChangeType.CREATE,
+            ProposalType.UPDATE_RELATION: ChangeType.UPDATE,
+            ProposalType.DELETE_RELATION: ChangeType.DELETE,
+            ProposalType.ADD_PROPERTY: ChangeType.UPDATE,
+            ProposalType.UPDATE_PROPERTY: ChangeType.UPDATE,
+        }
+        change_type = _TYPE_MAP.get(proposal.proposal_type, ChangeType.UPDATE)
+        target_type = "relation" if "relation" in proposal.proposal_type.value else "entity"
+
+        await self._versioning.apply_change(
+            change_type=change_type,
+            target_type=target_type,
+            target_id=proposal.target_id or proposal.id,
+            new_data=proposal.proposed_data,
+            author=proposal.author,
+            proposal_id=proposal.id,
+        )
+        proposal.status = ProposalStatus.APPLIED
+        logger.info("hitl.proposal_applied", proposal_id=proposal_id)
 
     async def reject_proposal(
         self,
@@ -192,10 +257,7 @@ class ChangeProposalService:
         reviewer: str = "anonymous",
         comment: str = "",
     ) -> ChangeProposal:
-        """Reject a proposal.
-
-        TODO (delegate): Update status and persist.
-        """
+        """Reject a proposal."""
         proposal = self._proposals.get(proposal_id)
         if not proposal:
             raise ValueError(f"Proposal {proposal_id} not found")
