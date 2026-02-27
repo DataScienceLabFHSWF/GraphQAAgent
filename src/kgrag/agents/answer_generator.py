@@ -54,6 +54,7 @@ class AnswerGenerator:
         contexts: list[RetrievedContext],
         *,
         cot_summary: str | None = None,
+        preamble: str | None = None,
     ) -> QAAnswer:
         """Generate an answer grounded in *contexts*.
 
@@ -62,6 +63,8 @@ class AnswerGenerator:
             contexts: Retrieved evidence.
             cot_summary: Optional Chain-of-Thought reasoning summary to
                 prepend as additional context for the LLM.
+            preamble: Optional pre-computed reasoning (e.g. from ReAct agent)
+                to prepend before the answer prompt.
 
         Returns a :class:`QAAnswer` with ``answer_text`` and ``latency_ms``
         populated.  The ``evidence`` field carries the contexts used.
@@ -70,9 +73,13 @@ class AnswerGenerator:
 
         assembled_context = self._assembler.assemble(contexts)
 
-        # Prepend CoT reasoning if available
+        # Prepend reasoning preamble or CoT summary if available
         cot_block = ""
-        if cot_summary:
+        if preamble:
+            cot_block = (
+                f"Pre-analysis reasoning:\n{preamble}\n\n"
+            )
+        elif cot_summary:
             cot_block = (
                 f"Step-by-step reasoning:\n{cot_summary}\n\n"
             )

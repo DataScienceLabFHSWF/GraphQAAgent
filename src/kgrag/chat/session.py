@@ -34,7 +34,7 @@ from kgrag.api.chat_schemas import (
     ReasoningStepResponse,
     VerificationResponse,
 )
-from kgrag.api.schemas import ProvenanceResponse
+from kgrag.api.schemas import FactChainResponse, ProvenanceResponse, ToolTraceResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -340,6 +340,25 @@ class ChatSessionManager:
             subgraph=answer.subgraph_json,
             verification=verification,
             gap_detection=gap_detection,
+            fact_chains=[
+                FactChainResponse(
+                    source=fc.get("source", ""),
+                    target=fc.get("target", ""),
+                    chain_text=fc.get("chain_text", ""),
+                    edges=fc.get("edges", []),
+                    node_labels=fc.get("node_labels", []),
+                )
+                for fc in getattr(answer, "fact_chains", [])
+            ],
+            tool_trace=[
+                ToolTraceResponse(
+                    tool=tt.get("tool", ""),
+                    args=tt.get("args", {}),
+                    result_summary=tt.get("result_summary", ""),
+                    iteration=tt.get("iteration", 0),
+                )
+                for tt in getattr(answer, "tool_trace", [])
+            ],
         )
 
     # -- session queries ----------------------------------------------------

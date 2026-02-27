@@ -6,7 +6,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from kgrag.agents.orchestrator import Orchestrator
-from kgrag.api.schemas import AnswerResponse, HealthResponse, ProvenanceResponse, QuestionRequest
+from kgrag.api.schemas import (
+    AnswerResponse,
+    FactChainResponse,
+    HealthResponse,
+    ProvenanceResponse,
+    QuestionRequest,
+    ToolTraceResponse,
+)
 
 router = APIRouter()
 
@@ -110,12 +117,35 @@ async def ask(request: QuestionRequest) -> AnswerResponse:
         for ctx in answer.evidence
     ]
 
+    fact_chains = [
+        FactChainResponse(
+            source=fc.get("source", ""),
+            target=fc.get("target", ""),
+            chain_text=fc.get("chain_text", ""),
+            edges=fc.get("edges", []),
+            node_labels=fc.get("node_labels", {}),
+        )
+        for fc in answer.fact_chains
+    ]
+
+    tool_trace = [
+        ToolTraceResponse(
+            tool=tt.get("tool", ""),
+            args=tt.get("args", {}),
+            result_summary=tt.get("result_summary", ""),
+            iteration=tt.get("iteration", 0),
+        )
+        for tt in answer.tool_trace
+    ]
+
     return AnswerResponse(
         question=answer.question,
         answer=answer.answer_text,
         confidence=answer.confidence,
         reasoning_chain=answer.reasoning_chain,
         provenance=provenance,
+        fact_chains=fact_chains,
+        tool_trace=tool_trace,
         subgraph=answer.subgraph_json,
         latency_ms=answer.latency_ms,
     )

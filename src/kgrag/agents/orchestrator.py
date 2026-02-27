@@ -283,6 +283,11 @@ class Orchestrator:
         if strategy == "hybrid_sota" and hasattr(self, "_last_exploration_trace"):
             answer.exploration_trace = self._last_exploration_trace
 
+        # Attach fact chains and tool trace from the agentic retriever
+        if strategy == "agentic":
+            answer.fact_chains = getattr(self.agentic_retriever, "_last_fact_chains", [])
+            answer.tool_trace = getattr(self.agentic_retriever, "_last_tool_trace", [])
+
         # Phase 6: Answer verification (SOTA only)
         if strategy == "hybrid_sota" and reasoning_cfg.enable_answer_verification:
             verification = await self.answer_verifier.verify(

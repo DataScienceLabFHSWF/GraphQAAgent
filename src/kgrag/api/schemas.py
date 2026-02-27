@@ -25,6 +25,25 @@ class ProvenanceResponse(BaseModel):
     entity_ids: list[str] = Field(default_factory=list)
 
 
+class FactChainResponse(BaseModel):
+    """A verified fact chain from KG path traversal."""
+
+    source: str
+    target: str
+    chain_text: str = ""
+    edges: list[dict[str, str]] = Field(default_factory=list)
+    node_labels: dict[str, str] = Field(default_factory=dict)
+
+
+class ToolTraceResponse(BaseModel):
+    """A single tool call made by the agentic retriever."""
+
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result_summary: str = ""
+    iteration: int = 0
+
+
 class AnswerResponse(BaseModel):
     """Full QA response with provenance."""
 
@@ -33,6 +52,8 @@ class AnswerResponse(BaseModel):
     confidence: float
     reasoning_chain: list[str] = Field(default_factory=list)
     provenance: list[ProvenanceResponse] = Field(default_factory=list)
+    fact_chains: list[FactChainResponse] = Field(default_factory=list)
+    tool_trace: list[ToolTraceResponse] = Field(default_factory=list)
     subgraph: dict[str, Any] | None = None
     latency_ms: float = 0.0
 

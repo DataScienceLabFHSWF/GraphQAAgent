@@ -17,7 +17,9 @@ SSE event sequence
 8. ``subgraph``         — vis.js / Cytoscape-compatible graph JSON
 9. ``verification``     — faithfulness check result
 10. ``gap_alert``       — HITL gap detection (if triggered)
-11. ``done``            — final metadata (confidence, latency, strategy)
+11. ``fact_chains``     — grounded KG fact chains (agentic)
+12. ``tool_trace``      — agent tool call trace (agentic)
+13. ``done``            — final metadata (confidence, latency, strategy)
 
 On error an ``error`` event is emitted instead.
 """
@@ -125,7 +127,21 @@ async def stream_chat_response(
         if result.gap_detection:
             yield sse_event("gap_alert", result.gap_detection.model_dump())
 
-        # 11. Done
+        # 11. Fact chains (agentic transparency)
+        if result.fact_chains:
+            yield sse_event(
+                "fact_chains",
+                [fc.model_dump() for fc in result.fact_chains],
+            )
+
+        # 12. Tool trace (agentic transparency)
+        if result.tool_trace:
+            yield sse_event(
+                "tool_trace",
+                [tt.model_dump() for tt in result.tool_trace],
+            )
+
+        # 13. Done
         yield sse_event(
             "done",
             {

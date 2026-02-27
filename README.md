@@ -4,9 +4,23 @@
 
 ## Key Contributions
 
+**Recent major improvements (2026)**
+
+- Agentic ReAct planner with dynamic tool calling, caching, self-reflection and
+  fact chain tracing
+- Evidence quality scoring (embedding-based) and adaptive iteration limits
+- Retrieval plan generation (ReWOO-style) for improved tool coordination
+- Advanced tools: semantic search, subgraph aggregation, entity comparison,
+  LLM-generated aggregation Cypher with safety guard
+- Streaming chat with tool traces and fact chain events
+- Graph-of-Thought DAG-based reasoning engine
+- KG-constrained answer validator and active ontology learning module
+- Extended API schema with rich context, verification, gap alerts
+- Backend enhancements around ontology gap proposals, HITL integration, and
+  multi-agent architecture
+
 | Contribution | Module | Description |
 |-------------|--------|-------------|
-| **HybridGraph Retrieval** | `retrieval/hybrid.py` | FusionRAG — vector + graph + adaptive ontology-informed weighting with RRF |
 | **Ontology-Informed Retrieval** | `retrieval/ontology.py` | Query expansion via class hierarchies, synonyms, and expected relations |
 | **Agentic GraphRAG** | `retrieval/agentic_rag.py` | LangGraph-style ReAct agent that dynamically combines all retrieval strategies via tool-calling |
 | **Chain-of-Thought Reasoning** | `agents/chain_of_thought.py` | Multi-hop KG-grounded CoT with per-step evidence retrieval, inspired by GCR (Luo 2025) |

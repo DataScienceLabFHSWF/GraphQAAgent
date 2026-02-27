@@ -146,6 +146,7 @@ class RetrievedContext:
     source: RetrievalSource
     text: str
     score: float = 0.0
+    relevance_score: float | None = None
     chunk: DocumentChunk | None = None
     subgraph: list[KGEntity | KGRelation] | None = None
     provenance: Provenance | None = None
@@ -203,9 +204,11 @@ class QAAnswer:
     cited_entities: list[KGEntity] = field(default_factory=list)
     cited_relations: list[KGRelation] = field(default_factory=list)
     subgraph_json: dict[str, Any] | None = None  # Visualisable subgraph
+    fact_chains: list[dict[str, Any]] = field(default_factory=list)  # Grounded KG fact chains
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)  # Agent tool call trace
     verification: VerificationResult | None = None
     exploration_trace: GraphExplorationState | None = None
-    react_metadata: dict[str, Any] | None = None  # NEW: ReAct reasoning metadata
+    react_metadata: dict[str, Any] | None = None  # ReAct reasoning metadata
     latency_ms: float = 0.0
 
 

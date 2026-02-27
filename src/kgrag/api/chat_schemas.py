@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from kgrag.api.schemas import ProvenanceResponse
+from kgrag.api.schemas import FactChainResponse, ProvenanceResponse, ToolTraceResponse
 
 
 # ---------------------------------------------------------------------------
@@ -151,13 +151,18 @@ class ChatResponse(BaseModel):
     verification: VerificationResponse | None = None
     gap_detection: GapDetectionResponse | None = None
 
+    # Agentic transparency
+    fact_chains: list[FactChainResponse] = Field(default_factory=list)
+    tool_trace: list[ToolTraceResponse] = Field(default_factory=list)
+
 
 class ChatStreamEvent(BaseModel):
     """Payload structure for a single SSE event.
 
     ``event`` values: ``session``, ``reasoning_step``, ``token``,
     ``evidence``, ``entities``, ``relations``, ``provenance``,
-    ``subgraph``, ``verification``, ``gap_alert``, ``done``, ``error``.
+    ``subgraph``, ``verification``, ``gap_alert``, ``fact_chains``,
+    ``tool_trace``, ``done``, ``error``.
     """
 
     event: str
