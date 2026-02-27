@@ -133,7 +133,7 @@ class OntologyGapDetector:
         """
         negative_indicators = [
             "not found", "no matching", "unknown", "no results",
-            "no classes", "no properties",
+            "no classes", "no properties", "no ontology",
         ]
         result_lower = lookup_result.lower()
         if not any(ind in result_lower for ind in negative_indicators):

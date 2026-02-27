@@ -149,6 +149,9 @@ Make sure you stop any other Streamlit/Docker services that use the same ports;
 # Interactive QA
 python scripts/run_qa.py
 
+# Generate a gap report for a question (see scripts/gap_report.py)
+python scripts/gap_report.py "Why is FuelRod important?"
+```
 # Single question
 python scripts/run_qa.py -q "Welche Rückbauverfahren werden bei Reaktor A eingesetzt?"
 
