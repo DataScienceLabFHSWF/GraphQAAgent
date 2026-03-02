@@ -16,6 +16,18 @@ from fastapi import APIRouter, HTTPException, Query
 from kgrag.connectors.fuseki import FusekiConnector
 from kgrag.connectors.neo4j import Neo4jConnector
 
+from kgrag.api.explorer_schemas import (
+    EntityInfo,
+    EntityDetail,
+    SubgraphResponse,
+    RelationType,
+    KGStats,
+    LawInfo,
+    LawStructure,
+    OntologyClassInfo,
+    OntologyTree,
+)
+
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/explore", tags=["explorer"])
@@ -51,7 +63,7 @@ def set_connectors(neo4j: Neo4jConnector, fuseki: FusekiConnector) -> None:
 # ===================================================================
 
 
-@router.get("/entities")
+@router.get("/entities", response_model=list[EntityInfo])
 async def list_entities(
     entity_type: str | None = None,
     search: str | None = None,
@@ -96,7 +108,7 @@ async def list_entities(
     return entities
 
 
-@router.get("/entities/{entity_id}")
+@router.get("/entities/{entity_id}", response_model=EntityDetail)
 async def get_entity(entity_id: str) -> dict[str, Any]:
     """Get a single entity with its outgoing and incoming relations."""
     if _neo4j is None:
@@ -127,7 +139,7 @@ async def get_entity(entity_id: str) -> dict[str, Any]:
     return props
 
 
-@router.get("/entities/{entity_id}/subgraph")
+@router.get("/entities/{entity_id}/subgraph", response_model=SubgraphResponse)
 async def get_entity_subgraph(
     entity_id: str,
     depth: int = Query(default=2, le=4),
@@ -185,7 +197,7 @@ async def get_entity_subgraph(
     return {"nodes": rec["nodes"], "edges": rec["edges"]}
 
 
-@router.get("/relations")
+@router.get("/relations", response_model=list[RelationType])
 async def list_relation_types() -> list[dict[str, Any]]:
     """List all relation types in the KG with counts."""
     if _neo4j is None:
@@ -197,7 +209,7 @@ async def list_relation_types() -> list[dict[str, Any]]:
     return rows
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=KGStats)
 async def get_kg_stats() -> dict[str, Any]:
     """Aggregate KG statistics — node counts, edge counts, type distribution."""
     if _neo4j is None:
@@ -233,7 +245,7 @@ async def get_kg_stats() -> dict[str, Any]:
 # ===================================================================
 
 
-@router.get("/laws")
+@router.get("/laws", response_model=list[LawInfo])
 async def list_laws() -> list[dict[str, Any]]:
     """List all laws (Gesetzbücher) in the law graph."""
     if _neo4j is None:
@@ -251,7 +263,7 @@ async def list_laws() -> list[dict[str, Any]]:
     return laws
 
 
-@router.get("/laws/{law_id}/structure")
+@router.get("/laws/{law_id}/structure", response_model=LawStructure)
 async def get_law_structure(law_id: str) -> dict[str, Any]:
     """Hierarchical structure of a law: Gesetzbuch → Paragraf."""
     if _neo4j is None:
@@ -313,7 +325,7 @@ async def get_law_linked_entities(law_id: str) -> list[dict[str, Any]]:
 # ===================================================================
 
 
-@router.get("/ontology/classes")
+@router.get("/ontology/classes", response_model=list[OntologyClassInfo])
 async def list_ontology_classes() -> list[dict[str, Any]]:
     """List all ontology classes with hierarchy."""
     if _fuseki is None:
@@ -340,7 +352,7 @@ async def get_class_properties(class_uri: str) -> list[dict[str, Any]]:
     return [p.model_dump() if hasattr(p, "model_dump") else p.__dict__ for p in props]
 
 
-@router.get("/ontology/tree")
+@router.get("/ontology/tree", response_model=list[OntologyTree])
 async def get_ontology_tree() -> dict[str, Any]:
     """Full class hierarchy as a tree for D3.js / Cytoscape.js rendering."""
     if _fuseki is None:

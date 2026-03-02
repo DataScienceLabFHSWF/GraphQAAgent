@@ -95,6 +95,10 @@ def create_app() -> FastAPI:
     app.include_router(chat_router, prefix="/api/v1")
     app.include_router(explorer_router, prefix="/api/v1")
 
+    # HITL feedback & cross-service endpoints
+    from kgrag.api.hitl_routes import router as hitl_router
+    app.include_router(hitl_router, prefix="/api/v1")
+
     return app
 
 

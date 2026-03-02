@@ -247,6 +247,9 @@ class QAEvalResult:
     latency_ms: float = 0.0
     retrieval_strategy: str = ""
     context_count: int = 0
+    # Was any ontology gap detected by the pipeline?
+    gap_detected: bool = False
+    gap_type: str | None = None
     # DeepEval LLM-as-a-judge scores (optional — None when not computed)
     deepeval_answer_relevancy: float | None = None
     deepeval_faithfulness: float | None = None

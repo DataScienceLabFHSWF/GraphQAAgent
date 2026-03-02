@@ -228,6 +228,9 @@ class TestModelsDeepEvalFields:
         assert r.deepeval_answer_relevancy is None
         assert r.deepeval_faithfulness is None
         assert r.deepeval_correctness is None
+        # gap detection defaults
+        assert r.gap_detected is False
+        assert r.gap_type is None
 
     def test_qa_benchmark_item_int_difficulty(self) -> None:
         from kgrag.core.models import QABenchmarkItem

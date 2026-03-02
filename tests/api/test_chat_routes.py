@@ -45,15 +45,33 @@ def patch_session_manager(monkeypatch):
     monkeypatch.setattr(cr, "_session_manager", mgr)
     # Reset rate-limit buckets between tests
     cr._rate_buckets.clear()
+    # stub out forwarding utility with a MagicMock so we can assert calls
+    from unittest.mock import MagicMock
+    import kgrag.api.dependencies as deps
+    fake = MagicMock(return_value={"status": "received"})
+    monkeypatch.setattr(deps, "forward_to_kgbuilder", fake)
     yield mgr
 
 
 def test_chat_send_basic():
     req = ChatRequest(message="hi", strategy="", language="de", stream=False)
+    # monkeypatch in fixture has replaced forward_to_kgbuilder
     resp = asyncio.get_event_loop().run_until_complete(cr.chat_send(req, _fake_request()))
     assert resp.message.content == "hello"
     assert resp.confidence == pytest.approx(0.42)
     assert resp.subgraph == {"nodes": [], "edges": []}
+    # low confidence answer triggers a forward call
+    from kgrag.api.dependencies import forward_to_kgbuilder
+    assert forward_to_kgbuilder.called
+
+
+def test_chat_streaming():
+    req = ChatRequest(message="hi", strategy="", language="de", stream=True)
+    # use the same fake request stub from above
+    resp = asyncio.get_event_loop().run_until_complete(cr.chat_send(req, _fake_request()))
+    # streaming response should be a generator or StreamingResponse
+    assert hasattr(resp, "headers")
+    assert resp.headers["content-type"].startswith("text/event-stream")
 
 
 def test_sessions_and_history():

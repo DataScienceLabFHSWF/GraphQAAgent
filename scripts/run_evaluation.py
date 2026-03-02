@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+from pathlib import Path
 
 from kgrag.agents.orchestrator import Orchestrator
 from kgrag.agents.question_parser import QuestionParser
@@ -42,6 +44,7 @@ async def main() -> None:
     try:
         dataset = QADataset.load(args.benchmark)
         results: list[QAEvalResult] = []
+        gap_list: list[dict] = []  # record any gaps encountered
 
         for strategy_name in args.strategies:
             print(f"\n▶ Evaluating strategy: {strategy_name}")
@@ -59,11 +62,21 @@ async def main() -> None:
                     latency_ms=answer.latency_ms,
                     retrieval_strategy=strategy_name,
                     context_count=len(answer.evidence),
+                    gap_detected=bool(getattr(answer, "gap_detection", None)),
+                    gap_type=(answer.gap_detection.gap_type
+                              if getattr(answer, "gap_detection", None) else None),
                 )
                 results.append(result)
+                if result.gap_detected:
+                    gap_list.append({
+                        "question_id": item.question_id,
+                        "strategy": strategy_name,
+                        "gap_type": result.gap_type,
+                    })
                 print(f"  {item.question_id}: F1={result.f1_score:.3f} "
                       f"EM={'✓' if result.exact_match else '✗'} "
-                      f"Faith={result.faithfulness:.3f}")
+                      f"Faith={result.faithfulness:.3f}" +
+                      (f" GAP={result.gap_type}" if result.gap_detected else ""))
 
         # Compare strategies
         comparator = StrategyComparator()
@@ -73,6 +86,12 @@ async def main() -> None:
         reporter = EvaluationReporter()
         files = reporter.generate(comparisons, output_dir=args.output_dir, formats=args.formats)
         print(f"\n✅ Reports generated: {[str(f) for f in files]}")
+
+        # Write gap list if any
+        if gap_list:
+            gap_path = Path(args.output_dir) / "evaluation_gap_report.json"
+            gap_path.write_text(json.dumps(gap_list, indent=2, ensure_ascii=False))
+            print(f"✅ Gap report written: {gap_path}")
 
     finally:
         await orchestrator.shutdown()

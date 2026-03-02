@@ -87,6 +87,15 @@ class EvaluationConfig(BaseModel):
     num_runs: int = 3
 
 
+class HitlConfig(BaseModel):
+    """Configuration for human-in-the-loop / cross-service integration."""
+
+    # base URL of the KGBuilder API; used when reporting low-confidence
+    # QA results for gap detection.
+    kgbuilder_api_url: str = "http://localhost:8001"
+    confidence_threshold: float = 0.5  # below this value trigger report
+
+
 class Settings(BaseSettings):
     """Root settings — loaded from env vars with ``KGRAG_`` prefix."""
 
@@ -96,6 +105,7 @@ class Settings(BaseSettings):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    hitl: HitlConfig = Field(default_factory=HitlConfig)
     log_level: str = "INFO"
 
     model_config = {

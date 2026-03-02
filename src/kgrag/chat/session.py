@@ -325,6 +325,23 @@ class ChatSessionManager:
                 affected_entities=gap_info.get("affected_entities", []),
             )
 
+        # auto-report low-confidence results to KGBuilder via HITL API
+        try:
+            from kgrag.api.dependencies import forward_to_kgbuilder, get_settings
+
+            settings = get_settings()
+            thresh = float(settings.hitl.confidence_threshold)
+            if answer.confidence < thresh:
+                qa_obj = {
+                    "question": request.message,
+                    "answer": answer.answer_text,
+                    "confidence": answer.confidence,
+                    "session_id": session_id,
+                }
+                _ = forward_to_kgbuilder([qa_obj])
+        except Exception:
+            logger.warning("auto_report_low_conf_failed", session_id=session_id)
+
         return ChatResponse(
             session_id=session_id,
             message=ChatMessage(role="assistant", content=answer.answer_text),
