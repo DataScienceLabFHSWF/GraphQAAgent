@@ -13,7 +13,7 @@ neo4j>=5.15,<6
 qdrant-client>=1.7,<2
 
 # --- Embeddings & Reranking ---
-numpy>=1.26,<2
+numpy>=1.26
 sentence-transformers>=3.0
 
 # --- LLM ---
@@ -29,3 +29,6 @@ uvicorn[standard]>=0.27
 
 # --- Experiment Tracking ---
 wandb>=0.16
+langchain-neo4j>=0.8
+langchain-ollama>=1.0
+langchain>=1.0

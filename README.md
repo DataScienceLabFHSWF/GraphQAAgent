@@ -1,6 +1,16 @@
 # KG-RAG QA Agent
 
-**Ontology-informed GraphRAG Question Answering** over Knowledge Graphs built by [KnowledgeGraphBuilder](https://github.com/fneubuerger/KnowledgeGraphBuilder).
+**Ontology-informed GraphRAG Question Answering** over Knowledge Graphs built by [KnowledgeGraphBuilder](https://github.com/DataScienceLabFHSWF/KnowledgeGraphBuilder).
+
+Part of a three-repository research ecosystem:
+
+| Repository | Purpose | Branch |
+|-----------|---------|--------|
+| [KnowledgeGraphBuilder](https://github.com/DataScienceLabFHSWF/KnowledgeGraphBuilder) | KG construction, validation, and export | `fast-api` |
+| **GraphQAAgent** (this repo) | Ontology-informed GraphRAG QA agent | `dev/fast-api-backend` |
+| [OntologyExtender](https://github.com/DataScienceLabFHSWF/OntologyExtender) | Human-in-the-loop ontology extension | `fast-api` |
+
+All three are orchestrated together via [KGPlatform](https://github.com/DataScienceLabFHSWF/KGPlatform), but each works standalone with its own `docker-compose.yml`.
 
 ## Key Contributions
 
@@ -64,86 +74,42 @@ ChatSession (history + streaming) ◄──────────────�
 
 ## Quick Start
 
-### Option 1: KG-RAG Dedicated Stack (Recommended)
+### Option 1: Docker (Recommended)
 
 ```bash
-# Clone and install
-git clone https://github.com/fneubuerger/GraphQAAgent.git
+git clone https://github.com/DataScienceLabFHSWF/GraphQAAgent.git
+cd GraphQAAgent
+cp .env.example .env
+
+# Start full stack — infra + API + auto model pull
+docker compose up -d --build
+
+# API: http://localhost:8002/docs
+# Neo4j: http://localhost:7474
+```
+
+### Option 2: As Part of KGPlatform
+
+```bash
+git clone --recurse-submodules https://github.com/DataScienceLabFHSWF/KGPlatform.git
+cd KGPlatform
+docker compose up -d  # starts all 3 APIs + shared infra
+```
+
+### Option 3: Local Development
+
+```bash
+git clone https://github.com/DataScienceLabFHSWF/GraphQAAgent.git
 cd GraphQAAgent
 pip install -e ".[dev]"
-
-# Copy and edit environment config
 cp .env.example .env
-# Edit .env with your settings (Neo4j, Qdrant, Fuseki credentials)
+# Edit .env to point to your running infrastructure
 
-# Setup KG-RAG's dedicated Ollama instance with required models
-./setup-ollama.sh
-
-# Start the complete KG-RAG stack (Ollama + QA Agent)
-docker-compose -f docker-compose.kgrag.yml up -d
-
-# The API will be available at http://localhost:8080
+# Start the API server
+uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8002
 ```
 
-### Option 2: Use Existing Infrastructure
-
-If you already have Neo4j, Qdrant, Fuseki, and Ollama running:
-
-```bash
-# Install dependencies
-pip install -e ".[dev]"
-
-# Edit .env to point to your existing services
-# KGRAG_NEO4J__URI=bolt://your-neo4j:7687
-# KGRAG_QDRANT__URL=http://your-qdrant:6333
-# etc.
-
-# Start only the QA agent
-docker-compose -f docker-compose.yml up -d qa-agent
-```
-
-### Interactive Usage
-
-### Demo helper script
-
-A convenience shell script `scripts/start_demo.sh` will kick off the containerised
-backends, the API server and the Streamlit frontend in one go.  It is
-smart about existing services:
-
-* If Neo4j (`7474`/`7687`) or Fuseki (`3030`) are already bound by other
-  projects the script detects the port usage and **skips** launching those
-  containers, assuming the existing instances host your data.
-* The API and frontend normally run on `8080` and `8501`, but if those ports
-  are in use the script will probe upwards for a free port and report the
-  actual values chosen.  Local processes listening on the selected ports are
-  killed so the new services can bind cleanly.
-
-The Streamlit container is configured with `API_URL=http://qa-agent:8080/api/v1`
-by default; override via environment variable or Streamlit secret if needed.
-
-Example:
-
-```bash
-chmod +x scripts/start_demo.sh
-./scripts/start_demo.sh               # start backend + ui (skips neo4j/fuseki if occupied)
-# or
-./scripts/start_demo.sh --no-frontend   # just services and API
-./scripts/start_demo.sh --no-docker     # API + frontend only
-./scripts/start_demo.sh --external-neo4j --external-fuseki   # always assume external DB services
-```
-
-Once the demo is running you can expose it publicly with ngrok:
-
-```bash
-ngrok http 8501   # tunnel the Streamlit UI
-ngrok http 8080   # tunnel the REST API
-```
-
-Make sure you stop any other Streamlit/Docker services that use the same ports;
-`start_demo.sh` will attempt to kill them automatically.
-
-
-# Interactive Usage
+## Interactive Usage
 
 ```bash
 # Interactive QA
@@ -306,29 +272,66 @@ Metrics: Token F1, Exact Match, Faithfulness, Context Relevance, Latency.
 
 ## Docker Setup
 
-The project provides two Docker configurations:
+The project provides three Docker Compose configurations for different use cases:
 
-### KG-RAG Dedicated Stack (`docker-compose.kgrag.yml`)
-- **Dedicated Ollama** on port 18136 with GPU support
-- **QA Agent API** on port 8080
-- **Isolated environment** for KG-RAG development
-- **Automatic model setup** via `setup-ollama.sh`
+### Option 1: Full Standalone Stack (`docker-compose.yml`)
 
-```bash
-# Setup and start everything
-./setup-ollama.sh
-docker-compose -f docker-compose.kgrag.yml up -d
-```
-
-### Shared Infrastructure Stack (`docker-compose.yml`)
-- **Shared Ollama** on port 11434 (with KGB/other projects)
-- **Full infrastructure**: Neo4j, Qdrant, Fuseki, Ollama
-- **Multi-project development** environment
+Brings up **everything** — Neo4j, Qdrant, Fuseki, Ollama, and the GraphQA API.
+Models are pulled automatically on first start.
 
 ```bash
-# Start all services
-docker-compose up -d
+# Start full stack (models auto-pulled on first run)
+docker compose up -d --build
+
+# Include the Streamlit frontend
+docker compose --profile frontend up -d --build
+
+# API available at http://localhost:8002/docs
 ```
+
+Container names are prefixed with `graphqa-` to avoid conflicts with other stacks.
+
+### Option 2: Backend Only (`docker-compose.backend.yml`)
+
+Connects to **existing infrastructure** (Neo4j, Qdrant, Fuseki, Ollama) running
+on the host or in another compose stack (e.g., KGPlatform or KnowledgeGraphBuilder).
+
+```bash
+# Edit .env to point to your existing services
+cp .env.example .env
+
+# Start only the API
+docker compose -f docker-compose.backend.yml up -d --build
+```
+
+### Option 3: Dedicated Ollama (`docker-compose.kgrag.yml`)
+
+Dedicated Ollama instance + API. Uses existing infra for Neo4j/Qdrant/Fuseki
+but runs its own Ollama with GPU. Models are pulled automatically.
+
+```bash
+docker compose -f docker-compose.kgrag.yml up -d --build
+```
+
+### Option 4: As Part of KGPlatform
+
+When used as a submodule inside [KGPlatform](https://github.com/DataScienceLabFHSWF/KGPlatform),
+all infrastructure is shared and this repo's `docker-compose.yml` is **not used**.
+KGPlatform's root `docker-compose.yml` handles everything:
+
+```bash
+cd KGPlatform
+docker compose up -d  # brings up all 3 APIs + shared infra
+```
+
+### Port Map
+
+| Mode | API Port | Ollama Port | Notes |
+|------|----------|-------------|-------|
+| Standalone | 8002 | 11436 | Own infra |
+| Backend | 8002 | — | External Ollama |
+| KG-RAG | 8002 | 18136 | Dedicated Ollama |
+| KGPlatform | 8002 | 18136 | Shared infra |
 
 ## Theoretical Foundations
 

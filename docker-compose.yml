@@ -1,41 +1,133 @@
+# GraphQAAgent — Standalone Docker Compose
+#
+# Brings up all infrastructure + the GraphQA API in one command.
+# Models are pulled automatically on first run.
+#
+# Usage:
+#   docker compose up -d              # start everything
+#   docker compose up -d --build      # rebuild API image + start
+#   docker compose --profile frontend up -d  # include Streamlit UI
+#   docker compose logs -f graphqa-api       # follow API logs
+#
+# When running inside KGPlatform, this file is NOT used.
+# KGPlatform's root docker-compose.yml handles everything.
+
 services:
-  # ---------------------------------------------------------------
-  # External services (shared with KnowledgeGraphBuilder or standalone)
-  # ---------------------------------------------------------------
-  neo4j:
-    image: neo4j:5-community
+  # ── GraphQA API ────────────────────────────────────────────
+  graphqa-api:
+    build: .
+    container_name: graphqa-api
+    restart: unless-stopped
+    ports:
+      - "${KGRAG_API_PORT:-8002}:8002"
     environment:
-      NEO4J_AUTH: neo4j/password
-      NEO4J_PLUGINS: '["apoc"]'
+      KGRAG_NEO4J__URI: bolt://graphqa-neo4j:7687
+      KGRAG_NEO4J__USER: ${NEO4J_USER:-neo4j}
+      KGRAG_NEO4J__PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      KGRAG_NEO4J__DATABASE: ${KGRAG_NEO4J__DATABASE:-neo4j}
+      KGRAG_QDRANT__URL: http://graphqa-qdrant:6333
+      KGRAG_QDRANT__COLLECTION_NAME: ${KGRAG_QDRANT__COLLECTION_NAME:-kgbuilder}
+      KGRAG_FUSEKI__URL: http://graphqa-fuseki:3030
+      KGRAG_FUSEKI__DATASET: ${KGRAG_FUSEKI__DATASET:-kgbuilder}
+      KGRAG_OLLAMA__BASE_URL: http://graphqa-ollama:11434
+      KGRAG_OLLAMA__GENERATION_MODEL: ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+      KGRAG_OLLAMA__EMBEDDING_MODEL: ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding:latest}
+      KGRAG_OLLAMA__TEMPERATURE: ${KGRAG_OLLAMA__TEMPERATURE:-0.3}
+      KGRAG_OLLAMA__MAX_TOKENS: ${KGRAG_OLLAMA__MAX_TOKENS:-4096}
+      KGRAG_CORS_ORIGINS: ${KGRAG_CORS_ORIGINS:-http://localhost:8501}
+      KGRAG_LOG_LEVEL: ${KGRAG_LOG_LEVEL:-INFO}
+    command: uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8002
+    depends_on:
+      graphqa-ollama-init:
+        condition: service_completed_successfully
+      graphqa-neo4j:
+        condition: service_started
+      graphqa-qdrant:
+        condition: service_started
+      graphqa-fuseki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - graphqa-net
+
+  # ── Streamlit Frontend (optional) ──────────────────────────
+  graphqa-frontend:
+    build: .
+    container_name: graphqa-frontend
+    profiles: ["frontend"]
+    restart: unless-stopped
+    ports:
+      - "${KGRAG_FRONTEND_PORT:-8501}:8501"
+    environment:
+      API_URL: http://graphqa-api:8002/api/v1
+    command: streamlit run src/kgrag/frontend/app.py --server.port 8501 --server.headless true --server.address 0.0.0.0
+    depends_on:
+      graphqa-api:
+        condition: service_healthy
+    networks:
+      - graphqa-net
+
+  # ── Infrastructure ─────────────────────────────────────────
+  graphqa-neo4j:
+    image: neo4j:5.26.0
+    container_name: graphqa-neo4j
+    restart: unless-stopped
+    environment:
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-changeme}
+      - NEO4J_PLUGINS=["apoc", "n10s"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,n10s.*
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*,n10s.*
+    volumes:
+      - neo4j-data:/data
+      - neo4j-plugins:/plugins
     ports:
       - "7474:7474"
       - "7687:7687"
-    volumes:
-      - neo4j_data:/data
+    networks:
+      - graphqa-net
 
-  qdrant:
+  graphqa-qdrant:
     image: qdrant/qdrant:latest
+    container_name: graphqa-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
     ports:
       - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
+    networks:
+      - graphqa-net
 
-  fuseki:
-    image: stain/jena-fuseki
+  graphqa-fuseki:
+    image: stain/jena-fuseki:latest
+    container_name: graphqa-fuseki
+    restart: unless-stopped
     environment:
-      ADMIN_PASSWORD: admin
-      FUSEKI_DATASET_1: ontology
+      - ADMIN_PASSWORD=${FUSEKI_ADMIN_PASSWORD:-admin}
+      - FUSEKI_DATASET_1=${KGRAG_FUSEKI__DATASET:-kgbuilder}
     ports:
       - "3030:3030"
     volumes:
-      - fuseki_data:/fuseki
+      - fuseki-data:/fuseki
+    networks:
+      - graphqa-net
 
-  ollama:
-    image: ollama/ollama
+  # ── Ollama + model init ────────────────────────────────────
+  graphqa-ollama:
+    image: ollama/ollama:0.14.3
+    container_name: graphqa-ollama
+    restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT:-11436}:11434"
     volumes:
-      - ollama_data:/root/.ollama
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_ALLOW_DOWNLOADS=true
     deploy:
       resources:
         reservations:
@@ -43,40 +135,41 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - graphqa-net
 
-  # ---------------------------------------------------------------
-  # QA Agent API (optional — for REST access)
-  # ---------------------------------------------------------------
-  qa-agent:
-    build: .
-    environment:
-      KGRAG_NEO4J__URI: bolt://neo4j:7687
-      KGRAG_NEO4J__USER: neo4j
-      KGRAG_NEO4J__PASSWORD: password
-      KGRAG_QDRANT__URL: http://qdrant:6333
-      KGRAG_FUSEKI__URL: http://fuseki:3030
-      KGRAG_OLLAMA__BASE_URL: http://ollama:11434
-    ports:
-      - "8080:8080"
-    command: uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8080
+  graphqa-ollama-init:
+    image: ollama/ollama:0.14.3
+    container_name: graphqa-ollama-init
     depends_on:
-      - neo4j
-      - qdrant
-      - fuseki
-      - ollama
-
-  frontend:
-    build: .
+      graphqa-ollama:
+        condition: service_healthy
     environment:
-      API_URL: http://qa-agent:8080/api/v1
-    ports:
-      - "8501:8501"
-    command: streamlit run src/kgrag/frontend/app.py --server.port 8501 --server.headless true
-    depends_on:
-      - qa-agent
+      - OLLAMA_HOST=graphqa-ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Pulling models for GraphQA..."
+        ollama pull ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+        ollama pull ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding}
+        echo "GraphQA models ready."
+    restart: "no"
+    networks:
+      - graphqa-net
 
 volumes:
-  neo4j_data:
-  qdrant_data:
-  fuseki_data:
-  ollama_data:
+  neo4j-data:
+  neo4j-plugins:
+  qdrant-data:
+  fuseki-data:
+  ollama-data:
+
+networks:
+  graphqa-net:
+    driver: bridge

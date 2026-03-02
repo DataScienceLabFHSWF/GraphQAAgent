@@ -1,18 +1,24 @@
-version: '3.8'
+# docker-compose.kgrag.yml
+#
+# Dedicated Ollama instance + GraphQA API.
+# Use when infrastructure (Neo4j, Qdrant, Fuseki) is already running
+# elsewhere but you want a dedicated Ollama for GraphQA.
+#
+# Usage:
+#   docker compose -f docker-compose.kgrag.yml up -d
 
 services:
-  # ---------------------------------------------------------------
-  # KG-RAG Dedicated Ollama Service
-  # ---------------------------------------------------------------
-  kgrag-ollama:
-    image: ollama/ollama:latest
-    container_name: kgrag-ollama
+  # ── Dedicated Ollama for GraphQA ───────────────────────────
+  graphqa-ollama:
+    image: ollama/ollama:0.14.3
+    container_name: graphqa-ollama
     ports:
-      - "18136:11434"  # Map host port 18136 to container port 11434
+      - "${OLLAMA_PORT:-18136}:11434"
     volumes:
-      - kgrag_ollama_data:/root/.ollama
+      - graphqa-ollama-data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ALLOW_DOWNLOADS=true
     deploy:
       resources:
         reservations:
@@ -22,62 +28,67 @@ services:
               capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
+    networks:
+      - graphqa-kgrag-net
 
-  # ---------------------------------------------------------------
-  # KG-RAG QA Agent API
-  # ---------------------------------------------------------------
-  kgrag-agent:
-    build: .
-    container_name: kgrag-agent
-    network_mode: host  # Use host networking to access external services
-    environment:
-      # Neo4j
-      KGRAG_NEO4J__URI: bolt://localhost:7687
-      KGRAG_NEO4J__USER: neo4j
-      KGRAG_NEO4J__PASSWORD: changeme
-      KGRAG_NEO4J__DATABASE: neo4j
-
-      # Qdrant
-      KGRAG_QDRANT__URL: http://localhost:6333
-      KGRAG_QDRANT__COLLECTION_NAME: kgbuilder
-
-      # Fuseki
-      KGRAG_FUSEKI__URL: http://localhost:3030
-      KGRAG_FUSEKI__DATASET: ontology
-
-      # KG-RAG Dedicated Ollama
-      KGRAG_OLLAMA__BASE_URL: http://localhost:18136
-      KGRAG_OLLAMA__GENERATION_MODEL: qwen3:8b
-      KGRAG_OLLAMA__EMBEDDING_MODEL: qwen3-embedding:latest
-      KGRAG_OLLAMA__TEMPERATURE: 0.3
-      KGRAG_OLLAMA__MAX_TOKENS: 4096
-
-      # Retrieval
-      KGRAG_RETRIEVAL__VECTOR_TOP_K: 10
-      KGRAG_RETRIEVAL__GRAPH_MAX_HOPS: 2
-      KGRAG_RETRIEVAL__GRAPH_MAX_NODES: 50
-
-      # Reasoning
-      KGRAG_RETRIEVAL__REASONING__ENABLE_CHAIN_OF_THOUGHT: true
-      KGRAG_RETRIEVAL__REASONING__ENABLE_REACT_REASONING: false
-      KGRAG_RETRIEVAL__REASONING__ENABLE_ITERATIVE_EXPLORATION: true
-      KGRAG_RETRIEVAL__REASONING__ENABLE_ANSWER_VERIFICATION: true
-      KGRAG_RETRIEVAL__REASONING__COT_MAX_STEPS: 5
-      KGRAG_RETRIEVAL__REASONING__REACT_MAX_ITERATIONS: 3
-      KGRAG_RETRIEVAL__REASONING__REACT_RELEVANCE_THRESHOLD: 0.3
-      KGRAG_RETRIEVAL__REASONING__VERIFICATION_CLAIM_THRESHOLD: 0.5
-
-      # Logging
-      KGRAG_LOG_LEVEL: INFO
-    command: uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8080
+  graphqa-ollama-init:
+    image: ollama/ollama:0.14.3
+    container_name: graphqa-ollama-init
     depends_on:
-      kgrag-ollama:
+      graphqa-ollama:
         condition: service_healthy
+    environment:
+      - OLLAMA_HOST=graphqa-ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Pulling models for GraphQA..."
+        ollama pull ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+        ollama pull ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding}
+        echo "GraphQA models ready."
+    restart: "no"
+    networks:
+      - graphqa-kgrag-net
+
+  # ── GraphQA API ────────────────────────────────────────────
+  graphqa-api:
+    build: .
+    container_name: graphqa-api
+    environment:
+      KGRAG_NEO4J__URI: ${KGRAG_NEO4J__URI:-bolt://host.docker.internal:7687}
+      KGRAG_NEO4J__USER: ${KGRAG_NEO4J__USER:-neo4j}
+      KGRAG_NEO4J__PASSWORD: ${KGRAG_NEO4J__PASSWORD:-changeme}
+      KGRAG_NEO4J__DATABASE: ${KGRAG_NEO4J__DATABASE:-neo4j}
+      KGRAG_QDRANT__URL: ${KGRAG_QDRANT__URL:-http://host.docker.internal:6333}
+      KGRAG_QDRANT__COLLECTION_NAME: ${KGRAG_QDRANT__COLLECTION_NAME:-kgbuilder}
+      KGRAG_FUSEKI__URL: ${KGRAG_FUSEKI__URL:-http://host.docker.internal:3030}
+      KGRAG_FUSEKI__DATASET: ${KGRAG_FUSEKI__DATASET:-kgbuilder}
+      KGRAG_OLLAMA__BASE_URL: http://graphqa-ollama:11434
+      KGRAG_OLLAMA__GENERATION_MODEL: ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+      KGRAG_OLLAMA__EMBEDDING_MODEL: ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding:latest}
+      KGRAG_OLLAMA__TEMPERATURE: ${KGRAG_OLLAMA__TEMPERATURE:-0.3}
+      KGRAG_OLLAMA__MAX_TOKENS: ${KGRAG_OLLAMA__MAX_TOKENS:-4096}
+      KGRAG_LOG_LEVEL: ${KGRAG_LOG_LEVEL:-INFO}
+    command: uvicorn kgrag.api.server:app --host 0.0.0.0 --port 8002
+    ports:
+      - "${KGRAG_API_PORT:-8002}:8002"
+    depends_on:
+      graphqa-ollama-init:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    networks:
+      - graphqa-kgrag-net
 
 volumes:
-  kgrag_ollama_data:
+  graphqa-ollama-data:
+
+networks:
+  graphqa-kgrag-net:
+    driver: bridge
