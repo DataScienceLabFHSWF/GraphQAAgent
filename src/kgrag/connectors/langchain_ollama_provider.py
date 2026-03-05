@@ -77,17 +77,40 @@ class LangChainOllamaProvider:
 
     # -- Generation methods (compatible with existing interface) --
 
-    async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text from a prompt."""
+    async def generate(self, prompt: str, *, run_name: str | None = None, metadata: dict | None = None, **kwargs) -> str:
+        """Generate text from a prompt.
+
+        ``run_name`` and ``metadata`` are forwarded to ``ainvoke`` so callers
+        (such as a session wrapper) can customise the trace.  If they are
+        omitted the model will use its default naming behavior.
+        """
         try:
-            response = await self.chat_model.ainvoke(prompt)
+            invoke_kwargs: dict[str, any] = {}
+            if run_name is not None:
+                invoke_kwargs["run_name"] = run_name
+            if metadata is not None:
+                invoke_kwargs["metadata"] = metadata
+
+            invoke_kwargs.update(kwargs)
+            response = await self.chat_model.ainvoke(prompt, **invoke_kwargs)
             return response.content
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             return f"Error: {str(e)}"
 
-    async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Chat with message history."""
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        run_name: str | None = None,
+        metadata: dict | None = None,
+        **kwargs,
+    ) -> str:
+        """Chat with message history.
+
+        ``run_name`` and ``metadata`` are forwarded to the underlying LLM call
+        to help group traces by conversation or session.
+        """
         try:
             # Convert messages to LangChain format
             from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -106,7 +129,14 @@ class LangChainOllamaProvider:
                 else:
                     lc_messages.append(HumanMessage(content=content))
 
-            response = await self.chat_model.ainvoke(lc_messages)
+            invoke_kwargs: dict[str, any] = {}
+            if run_name is not None:
+                invoke_kwargs["run_name"] = run_name
+            if metadata is not None:
+                invoke_kwargs["metadata"] = metadata
+            invoke_kwargs.update(kwargs)
+
+            response = await self.chat_model.ainvoke(lc_messages, **invoke_kwargs)
             return response.content
         except Exception as e:
             logger.error(f"Chat failed: {e}")
