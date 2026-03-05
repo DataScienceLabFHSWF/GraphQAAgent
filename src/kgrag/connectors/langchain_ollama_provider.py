@@ -27,19 +27,37 @@ class LangChainOllamaProvider:
         self.config = config
 
         # Initialize ChatOllama for text generation
-        self.chat_model: BaseChatModel = ChatOllama(
-            model=config.generation_model,
-            base_url=config.base_url,
-            temperature=config.temperature,
-            num_ctx=config.max_tokens,
-            num_predict=config.max_tokens,
-        )
+        # If LangSmith callbacks are configured we attach them here.
+        callbacks = None
+        try:
+            from kgrag.telemetry.langsmith import get_langsmith_callbacks
 
-        # Initialize OllamaEmbeddings for vector operations
-        self.embeddings: Embeddings = OllamaEmbeddings(
-            model=config.embedding_model,
-            base_url=config.base_url,
-        )
+            callbacks = get_langsmith_callbacks()
+        except Exception:  # module may not exist if telemetry added later
+            callbacks = None
+
+        chat_kwargs: dict[str, Any] = {
+            "model": config.generation_model,
+            "base_url": config.base_url,
+            "temperature": config.temperature,
+            "num_ctx": config.max_tokens,
+            "num_predict": config.max_tokens,
+        }
+        if callbacks:
+            chat_kwargs["callbacks"] = callbacks
+
+        self.chat_model: BaseChatModel = ChatOllama(**chat_kwargs)
+
+        # Initialize OllamaEmbeddings for vector operations (callbacks not
+        # currently used for embeddings, but we include the option for
+        # completeness).
+        embed_kwargs: dict[str, Any] = {
+            "model": config.embedding_model,
+            "base_url": config.base_url,
+        }
+        if callbacks:
+            embed_kwargs["callbacks"] = callbacks
+        self.embeddings: Embeddings = OllamaEmbeddings(**embed_kwargs)
 
         logger.info(f"LangChainOllamaProvider initialized with model {config.generation_model}")
 

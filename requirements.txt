@@ -32,3 +32,5 @@ wandb>=0.16
 langchain-neo4j>=0.8
 langchain-ollama>=1.0
 langchain>=1.0
+# optional LangSmith tracing (requires LANGSMITH_TRACING env vars)
+langsmith>=0.7.1
