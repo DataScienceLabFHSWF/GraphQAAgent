@@ -18,6 +18,26 @@ All three are orchestrated together via [KGPlatform](https://github.com/DataScie
 
 - Agentic ReAct planner with dynamic tool calling, caching, self-reflection and
   fact chain tracing
+
+### LangSmith session grouping
+
+For cleaner traces you can wrap high‑level operations in a tracing context so
+that all downstream LLM calls appear as children of a single run.  the
+telemetry helper in :file:`src/kgrag/telemetry/langsmith.py` provides both
+``get_langsmith_callbacks`` (for passing into LangChain constructors) and
+``tracing_context`` (a context manager).
+
+```python
+from kgrag.telemetry.langsmith import tracing_context, get_langsmith_callbacks
+
+with tracing_context(metadata={"session_id": session_id}):
+    model = ChatOllama(callbacks=get_langsmith_callbacks())
+    answer = model.invoke(prompt)
+```
+
+The context manager will be a no‑op when tracing is disabled or the
+``langsmith`` package is unavailable, so it is safe to call unconditionally.
+
 - Evidence quality scoring (embedding-based) and adaptive iteration limits
 - Retrieval plan generation (ReWOO-style) for improved tool coordination
 - Advanced tools: semantic search, subgraph aggregation, entity comparison,
