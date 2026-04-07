@@ -109,7 +109,7 @@ class DeepEvalEvaluator:
         - ``correctness``        — GEval: is the answer correct vs. expected?
 
     Args:
-        model_name: Ollama model name (e.g. ``"deepseek-r1:1.5b"``, ``"qwen3:8b"``).
+        model_name: Ollama model name (e.g. ``"deepseek-r1:1.5b"``, ``"gemma4:e4b"``).
         base_url: Ollama API URL.
         temperature: Sampling temperature for the judge model.
         metrics: Which metrics to compute, or ``None`` for all.

@@ -9,7 +9,7 @@
   Fuseki (3030), Ollama (18136), API (8080), Streamlit frontend (8504)
 - Neo4j: ~1 400 nodes, ~5 100 edges, fully indexed
 - Qdrant: collection `kgbuilder`, 3 004 vectors
-- Ollama: qwen3:8b (generation), qwen3-embedding:latest (embeddings)
+- Ollama: gemma4:e4b (generation), qwen3-embedding:latest (embeddings)
 - DomainConfig YAML system (`config/domain.yaml`) — all domain prompts
   externalised
 

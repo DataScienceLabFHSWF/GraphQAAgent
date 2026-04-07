@@ -7,7 +7,7 @@ and evaluates them with DeepEval metrics — no need to regenerate answers.
 Usage:
     python scripts/run_deepeval_on_results.py
     python scripts/run_deepeval_on_results.py --results reports/comparison/comparison_results.json
-    python scripts/run_deepeval_on_results.py --model qwen3:8b --metrics answer_relevancy correctness
+    python scripts/run_deepeval_on_results.py --model gemma4:e4b --metrics answer_relevancy correctness
     python scripts/run_deepeval_on_results.py --strategies vector_only hybrid_sota
 """
 
@@ -27,7 +27,7 @@ async def run_deepeval_evaluation(
     results_path: str,
     output_dir: str,
     *,
-    model_name: str = "qwen3:8b",
+    model_name: str = "gemma4:e4b",
     base_url: str = "http://localhost:18136",
     metrics: list[str] | None = None,
     strategies: list[str] | None = None,
@@ -261,8 +261,8 @@ async def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default="qwen3:8b",
-        help="Ollama model for DeepEval judge (default: qwen3:8b)",
+        default="gemma4:e4b",
+        help="Ollama model for DeepEval judge (default: gemma4:e4b)",
     )
     parser.add_argument(
         "--base-url",

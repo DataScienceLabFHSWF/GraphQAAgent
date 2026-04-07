@@ -195,7 +195,7 @@ async def run_benchmark(
     output_dir: str,
     *,
     deepeval_enabled: bool = False,
-    deepeval_model: str = "qwen3:8b",
+    deepeval_model: str = "gemma4:e4b",
     deepeval_metrics: list[str] | None = None,
 ) -> dict[str, Any]:
     """Execute the full benchmark comparison.
@@ -749,8 +749,8 @@ async def main() -> None:
     )
     parser.add_argument(
         "--deepeval-model",
-        default="qwen3:8b",
-        help="Ollama model for DeepEval judge (default: qwen3:8b)",
+        default="gemma4:e4b",
+        help="Ollama model for DeepEval judge (default: gemma4:e4b)",
     )
     parser.add_argument(
         "--deepeval-metrics",

@@ -40,7 +40,7 @@ class OllamaConfig(BaseModel):
     """Ollama LLM provider configuration."""
 
     base_url: str = "http://localhost:11434"
-    generation_model: str = "qwen3:8b"
+    generation_model: str = "gemma4:e4b"
     embedding_model: str = "qwen3-embedding:latest"
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)

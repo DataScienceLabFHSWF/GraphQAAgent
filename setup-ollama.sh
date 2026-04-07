@@ -31,8 +31,8 @@ echo "✅ Ollama service is running!"
 # Pull required models
 echo "📥 Pulling required models..."
 
-echo "Pulling qwen3:8b (generation model)..."
-docker compose -f docker-compose.kgrag.yml exec -T kgrag-ollama ollama pull qwen3:8b
+echo "Pulling gemma4:e4b (generation model)..."
+docker compose -f docker-compose.kgrag.yml exec -T kgrag-ollama ollama pull gemma4:e4b
 
 echo "Pulling qwen3-embedding:latest (embedding model)..."
 docker compose -f docker-compose.kgrag.yml exec -T kgrag-ollama ollama pull qwen3-embedding:latest

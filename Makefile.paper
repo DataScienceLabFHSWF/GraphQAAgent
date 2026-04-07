@@ -1,0 +1,177 @@
+# =============================================================================
+# GraphQAAgent Paper Experiments
+# "Ontology-Informed GraphRAG with Adaptive Retrieval Strategy Selection"
+# =============================================================================
+#
+# Usage:
+#   make -f Makefile.paper check              # Verify infra + models ready
+#   make -f Makefile.paper benchmark          # Run 6-strategy comparison + DeepEval
+#   make -f Makefile.paper all                # Run everything
+#
+# Prerequisites:
+#   - KGPlatform infra running (make up from root)
+#   - Neo4j + Qdrant populated by KGBuilder pipeline
+#   - Models pulled into ollama-graphqa container
+#   - Virtual environment with project installed
+# =============================================================================
+
+SHELL := /bin/bash
+.ONESHELL:
+
+# --- Configuration ---
+VENV            := .venv/bin/python
+OLLAMA_URL      := http://localhost:18136
+NEO4J_URI       := bolt://localhost:7687
+QDRANT_URL      := http://localhost:6333
+FUSEKI_URL      := http://localhost:3030
+BENCHMARK       := data/qa_benchmarks/benchmark_v3.json
+RESULTS_DIR     := reports/comparison
+MODEL           := gemma4:e4b
+STRATEGIES      := vector_only graph_only hybrid cypher agentic hybrid_sota
+
+.PHONY: all check check-ollama check-model check-neo4j check-qdrant check-venv \
+        benchmark benchmark-deepeval deepeval-post setup-venv pull-models clean help
+
+# =============================================================================
+# Top-level targets
+# =============================================================================
+
+all: check benchmark benchmark-deepeval
+	@echo ""
+	@echo "════════════════════════════════════════"
+	@echo "  All GraphQAAgent experiments done"
+	@echo "  Results: $(RESULTS_DIR)/"
+	@echo "════════════════════════════════════════"
+
+# =============================================================================
+# Dependency checks
+# =============================================================================
+
+check: check-venv check-ollama check-model check-neo4j check-qdrant
+	@echo "✓ All checks passed"
+
+check-venv:
+	@test -f .venv/bin/python || { echo "✗ .venv not found. Run: make -f Makefile.paper setup-venv"; exit 1; }
+	@$(VENV) -c "import kgrag" 2>/dev/null || { echo "✗ kgrag not installed. Run: .venv/bin/pip install -e ."; exit 1; }
+	@echo "✓ Virtual environment ready"
+
+check-ollama:
+	@curl -sf $(OLLAMA_URL)/api/tags > /dev/null || { echo "✗ Ollama not reachable at $(OLLAMA_URL)"; exit 1; }
+	@echo "✓ Ollama reachable at $(OLLAMA_URL)"
+
+check-model:
+	@curl -sf $(OLLAMA_URL)/api/tags | python3 -c "import sys,json; models=[m['name'] for m in json.load(sys.stdin)['models']]; sys.exit(0 if any('$(MODEL)' in m for m in models) else 1)" \
+		|| { echo "✗ Model $(MODEL) not pulled. Run: docker exec ollama-graphqa ollama pull $(MODEL)"; exit 1; }
+	@echo "✓ Model $(MODEL) available"
+
+check-neo4j:
+	@curl -sf http://localhost:7474 > /dev/null || { echo "✗ Neo4j not reachable at http://localhost:7474"; exit 1; }
+	@echo "✓ Neo4j reachable"
+
+check-qdrant:
+	@curl -sf $(QDRANT_URL)/collections > /dev/null || { echo "✗ Qdrant not reachable at $(QDRANT_URL)"; exit 1; }
+	@echo "✓ Qdrant reachable at $(QDRANT_URL)"
+
+# =============================================================================
+# Setup
+# =============================================================================
+
+setup-venv:
+	python3 -m venv .venv
+	.venv/bin/pip install -e .
+	@echo "✓ Virtual environment created and kgrag installed"
+
+pull-models:
+	docker exec ollama-graphqa ollama pull $(MODEL)
+	docker exec ollama-graphqa ollama pull qwen3-embedding:latest
+	@echo "✓ Models pulled"
+
+# =============================================================================
+# Strategy Comparison Benchmark (6 strategies × 50 questions)
+# =============================================================================
+
+benchmark: check
+	@echo ""
+	@echo "Running strategy comparison benchmark..."
+	@echo "  Benchmark: $(BENCHMARK)"
+	@echo "  Strategies: $(STRATEGIES)"
+	@mkdir -p $(RESULTS_DIR)
+	$(VENV) scripts/run_benchmark_comparison.py \
+		--benchmark $(BENCHMARK) \
+		--strategies $(STRATEGIES) \
+		--output-dir $(RESULTS_DIR)
+	@echo "✓ Benchmark complete → $(RESULTS_DIR)/"
+
+# =============================================================================
+# DeepEval LLM-as-Judge (run after benchmark)
+# =============================================================================
+
+benchmark-deepeval: check
+	@echo ""
+	@echo "Running benchmark with DeepEval LLM-as-judge..."
+	@mkdir -p $(RESULTS_DIR)
+	$(VENV) scripts/run_benchmark_comparison.py \
+		--benchmark $(BENCHMARK) \
+		--strategies $(STRATEGIES) \
+		--output-dir $(RESULTS_DIR) \
+		--deepeval \
+		--deepeval-model $(MODEL) \
+		--deepeval-metrics answer_relevancy faithfulness correctness
+	@echo "✓ Benchmark + DeepEval complete → $(RESULTS_DIR)/"
+
+deepeval-post: check
+	@echo ""
+	@echo "Running DeepEval on existing results..."
+	$(VENV) scripts/run_deepeval_on_results.py \
+		--results $(RESULTS_DIR)/comparison_results.json \
+		--model $(MODEL) \
+		--base-url $(OLLAMA_URL) \
+		--metrics answer_relevancy faithfulness contextual_relevancy correctness
+	@echo "✓ DeepEval scoring complete → $(RESULTS_DIR)/"
+
+# =============================================================================
+# Individual strategy runs (for debugging / partial re-runs)
+# =============================================================================
+
+bench-vector: check
+	$(VENV) scripts/run_benchmark_comparison.py --benchmark $(BENCHMARK) --strategies vector_only --output-dir $(RESULTS_DIR)
+
+bench-graph: check
+	$(VENV) scripts/run_benchmark_comparison.py --benchmark $(BENCHMARK) --strategies graph_only --output-dir $(RESULTS_DIR)
+
+bench-hybrid: check
+	$(VENV) scripts/run_benchmark_comparison.py --benchmark $(BENCHMARK) --strategies hybrid --output-dir $(RESULTS_DIR)
+
+bench-cypher: check
+	$(VENV) scripts/run_benchmark_comparison.py --benchmark $(BENCHMARK) --strategies cypher --output-dir $(RESULTS_DIR)
+
+bench-agentic: check
+	$(VENV) scripts/run_benchmark_comparison.py --benchmark $(BENCHMARK) --strategies agentic --output-dir $(RESULTS_DIR)
+
+bench-sota: check
+	$(VENV) scripts/run_benchmark_comparison.py --benchmark $(BENCHMARK) --strategies hybrid_sota --output-dir $(RESULTS_DIR)
+
+# =============================================================================
+# Utilities
+# =============================================================================
+
+clean:
+	@echo "This would remove reports. Are you sure? Run: rm -rf $(RESULTS_DIR)"
+
+help:
+	@echo "GraphQAAgent Paper Experiments"
+	@echo ""
+	@echo "  make -f Makefile.paper check              Verify infra + models"
+	@echo "  make -f Makefile.paper setup-venv          Create venv + install"
+	@echo "  make -f Makefile.paper pull-models         Pull generation + embedding models"
+	@echo "  make -f Makefile.paper benchmark           6-strategy comparison (50 questions)"
+	@echo "  make -f Makefile.paper benchmark-deepeval  Benchmark + DeepEval LLM-as-judge"
+	@echo "  make -f Makefile.paper deepeval-post       Score existing results with DeepEval"
+	@echo "  make -f Makefile.paper bench-vector        Vector-only strategy only"
+	@echo "  make -f Makefile.paper bench-sota          Hybrid SOTA strategy only"
+	@echo "  make -f Makefile.paper all                 Everything"
+	@echo ""
+	@echo "Model:      $(MODEL)"
+	@echo "Ollama:     $(OLLAMA_URL)"
+	@echo "Benchmark:  $(BENCHMARK)"
+	@echo "Strategies: $(STRATEGIES)"

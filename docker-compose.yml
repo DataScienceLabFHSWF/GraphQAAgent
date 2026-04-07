@@ -30,7 +30,7 @@ services:
       KGRAG_FUSEKI__URL: http://graphqa-fuseki:3030
       KGRAG_FUSEKI__DATASET: ${KGRAG_FUSEKI__DATASET:-kgbuilder}
       KGRAG_OLLAMA__BASE_URL: http://graphqa-ollama:11434
-      KGRAG_OLLAMA__GENERATION_MODEL: ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+      KGRAG_OLLAMA__GENERATION_MODEL: ${KGRAG_OLLAMA__GENERATION_MODEL:-gemma4:e4b}
       KGRAG_OLLAMA__EMBEDDING_MODEL: ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding:latest}
       KGRAG_OLLAMA__TEMPERATURE: ${KGRAG_OLLAMA__TEMPERATURE:-0.3}
       KGRAG_OLLAMA__MAX_TOKENS: ${KGRAG_OLLAMA__MAX_TOKENS:-4096}
@@ -119,7 +119,7 @@ services:
 
   # ── Ollama + model init ────────────────────────────────────
   graphqa-ollama:
-    image: ollama/ollama:0.14.3
+    image: ollama/ollama:latest
     container_name: graphqa-ollama
     restart: unless-stopped
     ports:
@@ -145,7 +145,7 @@ services:
       - graphqa-net
 
   graphqa-ollama-init:
-    image: ollama/ollama:0.14.3
+    image: ollama/ollama:latest
     container_name: graphqa-ollama-init
     depends_on:
       graphqa-ollama:
@@ -156,7 +156,7 @@ services:
     command:
       - |
         echo "Pulling models for GraphQA..."
-        ollama pull ${KGRAG_OLLAMA__GENERATION_MODEL:-qwen3:8b}
+        ollama pull ${KGRAG_OLLAMA__GENERATION_MODEL:-gemma4:e4b}
         ollama pull ${KGRAG_OLLAMA__EMBEDDING_MODEL:-qwen3-embedding}
         echo "GraphQA models ready."
     restart: "no"
